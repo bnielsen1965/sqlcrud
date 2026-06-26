@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Model Schema Viewer</title>
+  <link rel="stylesheet" type="text/css" href="css/index.css">
+</head>
+<body>
+  <h1>Model Schema Viewer</h1>
+
+  <!-- Tab Navigation -->
+  <div class="tabs">
+    <button class="tab-button active" onclick="switchTab('schemaTab')">Schema</button>
+    <button class="tab-button" onclick="switchTab('createTab')">Create Record</button>
+    <button class="tab-button" onclick="switchTab('viewRecordsTab')">View Records</button>
+  </div>
+
+  <!-- Schema Tab -->
+  <div id="schemaTab" class="tab-content active">
+    <div class="form-group">
+      <label for="modelSelect">Model Name:</label>
+      <input type="text" id="modelSelect" list="modelList" placeholder="Enter or select a model name">
+      <datalist id="modelList"></datalist>
+    </div>
+
+    <div class="form-group">
+      <label for="schemaEditor">JSON Schema:</label>
+      <div id="schemaEditor" class="ace_editor"></div>
+    </div>
+
+    <div>
+      <button id="loadSchemaBtn">Load Schema</button>
+      <button id="saveSchemaBtn">Save Schema</button>
+      <button id="deleteSchemaBtn">Delete Schema</button>
+      <button id="cancelBtn">Cancel</button>
+    </div>
+
+    <div class="documentation">
+      <h2>Schema Format</h2>
+      <p>The schema uses <a href="https://json-schema.org/" target="_blank">JSON Schema</a> format. Each field can have the following attributes:</p>
+
+      <h3>Field Attributes</h3>
+      <ul>
+        <li><strong>type</strong> - The data type of the field (string, integer, float, boolean, json, datetime)</li>
+        <li><strong>length</strong> - Maximum string length in sqlite</li>
+        <li><strong>unique</strong> - Determines if the field has unique values in sqlite</li>
+        <li><strong>primary</strong> - Determines if the field is a primary key in sqlite</li>
+        <li><strong>notnull</strong> - Determines if the field can hold null values in sqlite</li>
+      </ul>
+
+      <h3>Example Schema</h3>
+      <pre>{
+  "name": {
+    "type": "string",
+    "length": 100,
+    "primary": true
+  },
+  "age": {
+    "type": "integer"
+  },
+  "isActive": {
+    "type": "boolean"
+  }
+}</pre>
+
+      <p><strong>Note:</strong> The schema is stored as JSON in the database and will be validated when saved.</p>
+    </div>
+  </div>
+
+  <!-- Create Record Tab -->
+  <div id="createTab" class="tab-content">
+    <div class="form-group">
+      <label for="createModelSelect">Model Name:</label>
+      <input type="text" id="createModelSelect" list="createModelList" placeholder="Enter or select a model name">
+      <datalist id="createModelList"></datalist>
+    </div>
+
+    <div id="createFormContainer" style="display: none;">
+      <h2>Create New Record</h2>
+      <div id="formFields"></div>
+      <div style="margin-top: 20px;">
+        <button id="submitRecordBtn" style="padding: 10px 20px;">Save Record</button>
+        <button id="cancelRecordBtn" style="padding: 10px 20px;">Cancel</button>
+      </div>
+      <div id="recordMessage" style="margin-top: 10px; font-style: italic;"></div>
+    </div>
+    <div id="createPlaceholder" style="padding: 40px; text-align: center; color: #666;">
+      <p>Select a model from the dropdown above and load its schema to see the create form.</p>
+    </div>
+  </div>
+
+  <!-- Load ACE Editor -->
+  <script src="/js/ace/ace.js"></script>
+
+  <script src="/js/index.js"></script>
+</body>
+</html>
