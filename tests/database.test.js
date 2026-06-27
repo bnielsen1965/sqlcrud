@@ -1,9 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import FS from 'fs';
 import path from 'path';
-import { DatabaseSync } from 'node:sqlite';
 import Database from '../lib/database.js';
-import Schema from '../lib/schema.js';
 
 const TEST_DB_FILE = path.join(process.cwd(), 'tests', '__testdb__', 'database-test.db');
 
@@ -119,32 +117,4 @@ describe('Database', () => {
     });
   });
 
-  describe('createRecord', () => {
-    beforeEach(() => {
-      // Initialize schema table
-      Schema.init(db);
-      // Create a test schema
-      const schema = {
-        name: { type: 'string', notnull: true },
-        age: { type: 'integer' },
-        active: { type: 'boolean' }
-      };
-      Schema.createSchema('users', schema, db);
-    });
-
-    it('should throw when model does not exist', async () => {
-      await expect(db.createRecord('nonexistent', { name: 'John' }))
-        .rejects.toThrow();
-    });
-
-    it('should throw when notnull field is missing', async () => {
-      await expect(db.createRecord('users', { age: 30 }))
-        .rejects.toThrow(/Field name is required/);
-    });
-
-    it('should throw when notnull field is null', async () => {
-      await expect(db.createRecord('users', { name: null, age: 30 }))
-        .rejects.toThrow(/Field name is required/);
-    });
-  });
-});
+ });

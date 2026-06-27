@@ -186,20 +186,20 @@ describe('WebServer / CRUDAPI', () => {
   describe('POST /api/record/:model', () => {
     beforeEach(async () => {
       const schema = {
-        name: { type: 'string', notnull: true },
-        age: { type: 'integer' },
-        active: { type: 'boolean' }
+        name: { type: 'string' },
+        age: { type: 'integer' }
       };
       await request(app).post('/api/schema/users').send(schema);
     });
 
-    it('should return error when required field is missing', async () => {
+    it('should create a record and return it', async () => {
       const response = await request(app)
         .post('/api/record/users')
-        .send({ age: 30 });
+        .send({ name: 'John', age: 30 });
 
-      expect(response.status).toBe(500);
-      expect(response.body.error).toContain('required');
+      expect(response.status).toBe(200);
+      expect(response.body.name).toBe('John');
+      expect(response.body.age).toBe(30);
     });
 
     it('should return error when model does not exist', async () => {
@@ -208,47 +208,136 @@ describe('WebServer / CRUDAPI', () => {
         .send({ name: 'John' });
 
       expect(response.status).toBe(500);
-      expect(response.body.error).toContain('not found');
-    });
-
-    it('should attempt record creation (integration: createRecord needs runSQL/getSQL)', async () => {
-      const response = await request(app)
-        .post('/api/record/users')
-        .send({ name: 'John', age: 30, active: true });
-
-      // Note: createRecord() references this.runSQL/this.getSQL which
-      // are not implemented on the Database class.
-      expect(response.status).toBe(500);
-    });
-  });
-
-  describe('PUT /api/record/:model/:id', () => {
-    it('should return error for non-existent model', async () => {
-      const response = await request(app)
-        .put('/api/record/nonexistent/1')
-        .send({ name: 'Updated' });
-
-      expect(response.status).toBe(500);
     });
   });
 
   describe('GET /api/record/:model', () => {
-    it('should return error when model has no records', async () => {
-      const schema = { name: { type: 'string' } };
-      await request(app).post('/api/schema/testmodel').send(schema);
+    beforeEach(async () => {
+      const schema = {
+        name: { type: 'string' },
+        age: { type: 'integer' }
+      };
+      await request(app).post('/api/schema/users').send(schema);
+    });
 
-      const response = await request(app).get('/api/record/testmodel');
+    it('should return 404 when no records match', async () => {
+      const response = await request(app)
+        .get('/api/record/users')
+        .query({ name: 'Nobody' });
 
-      expect([404, 500]).toContain(response.status);
+      expect(response.status).toBe(404);
+    });
+
+    it('should return records matching a single field', async () => {
+      await request(app).post('/api/record/users').send({ name: 'John', age: 30 });
+      await request(app).post('/api/record/users').send({ name: 'Jane', age: 25 });
+
+      const response = await request(app)
+        .get('/api/record/users')
+        .query({ name: 'John' });
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body.length).toBe(1);
+      expect(response.body[0].name).toBe('John');
+    });
+
+    it('should return records matching multiple fields', async () => {
+      await request(app).post('/api/record/users').send({ name: 'John', age: 30 });
+      await request(app).post('/api/record/users').send({ name: 'John', age: 25 });
+
+      const response = await request(app)
+        .get('/api/record/users')
+        .query({ name: 'John', age: 30 });
+
+      expect(response.status).toBe(200);
+      expect(response.body.length).toBe(1);
+      expect(response.body[0].age).toBe(30);
     });
   });
 
-  describe('DELETE /api/record/:model/:id', () => {
-    it('should return error for non-existent model', async () => {
+  describe('PUT /api/record/:model', () => {
+    beforeEach(async () => {
+      const schema = {
+        name: { type: 'string' },
+        age: { type: 'integer' }
+      };
+      await request(app).post('/api/schema/users').send(schema);
+    });
+
+    it('should update a record matching field criteria', async () => {
+      await request(app).post('/api/record/users').send({ name: 'John', age: 30 });
+
       const response = await request(app)
-        .delete('/api/record/nonexistent/1');
+        .put('/api/record/users?name=John')
+        .send({ age: 35 });
+
+      expect(response.status).toBe(200);
+
+      const check = await request(app)
+        .get('/api/record/users')
+        .query({ name: 'John' });
+
+      expect(check.body[0].age).toBe(35);
+    });
+
+    it('should return error when no record matches', async () => {
+      await request(app).post('/api/record/users').send({ name: 'John', age: 30 });
+
+      const response = await request(app)
+        .put('/api/record/users?name=Nobody')
+        .send({ age: 35 });
 
       expect(response.status).toBe(500);
+      expect(response.body.error).toContain('No record found');
+    });
+
+    it('should return error when multiple records match', async () => {
+      await request(app).post('/api/record/users').send({ name: 'John', age: 30 });
+      await request(app).post('/api/record/users').send({ name: 'John', age: 25 });
+
+      const response = await request(app)
+        .put('/api/record/users?name=John')
+        .send({ age: 35 });
+
+      expect(response.status).toBe(500);
+      expect(response.body.error).toContain('more specific');
+    });
+  });
+
+  describe('DELETE /api/record/:model', () => {
+    beforeEach(async () => {
+      const schema = {
+        name: { type: 'string' },
+        age: { type: 'integer' }
+      };
+      await request(app).post('/api/schema/users').send(schema);
+    });
+
+    it('should delete records matching field criteria', async () => {
+      await request(app).post('/api/record/users').send({ name: 'John', age: 30 });
+      await request(app).post('/api/record/users').send({ name: 'Jane', age: 25 });
+
+      const response = await request(app)
+        .delete('/api/record/users')
+        .query({ name: 'John' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+
+      const check = await request(app)
+        .get('/api/record/users')
+        .query({ name: 'John' });
+
+      expect(check.status).toBe(404);
+    });
+
+    it('should not fail when deleting with no matches', async () => {
+      const response = await request(app)
+        .delete('/api/record/users')
+        .query({ name: 'Nobody' });
+
+      expect(response.status).toBe(200);
     });
   });
 });

@@ -9,6 +9,15 @@ let aceEditor;
 // ---- Auth helpers ----
 
 /**
+ * Encode a UTF-8 string to Base64, safely handling non-ASCII characters.
+ * Native btoa() throws on strings outside the Latin-1 range.
+ */
+function utf8ToBase64 (str) {
+  return btoa(Array.from(new TextEncoder().encode(str))
+    .map(b => String.fromCharCode(b)).join(''));
+}
+
+/**
  * Get stored credentials from sessionStorage, or prompt the user.
  * Returns { username, password } or null if the user cancels.
  */
@@ -37,7 +46,7 @@ function getCredentials() {
 function getAuthHeader() {
   const creds = getCredentials();
   if (!creds) return null;
-  const token = btoa(`${creds.username}:${creds.password}`);
+  const token = utf8ToBase64(`${creds.username}:${creds.password}`);
   return `Basic ${token}`;
 }
 
@@ -50,7 +59,7 @@ async function authFetch(url, options = {}) {
   if (stored) {
     try {
       const creds = JSON.parse(stored);
-      const token = btoa(`${creds.username}:${creds.password}`);
+      const token = utf8ToBase64(`${creds.username}:${creds.password}`);
       options.headers = { ...options.headers, Authorization: `Basic ${token}` };
     } catch {
       sessionStorage.removeItem('authCredentials');
@@ -66,7 +75,7 @@ async function authFetch(url, options = {}) {
       alert('Authentication cancelled.');
       return response;
     }
-    const token = btoa(`${creds.username}:${creds.password}`);
+    const token = utf8ToBase64(`${creds.username}:${creds.password}`);
     options.headers = { ...options.headers, Authorization: `Basic ${token}` };
     return fetch(url, options);
   }
@@ -75,7 +84,7 @@ async function authFetch(url, options = {}) {
 }
 
 // Tab switching function
-function switchTab(tabName) {
+function switchTab(event, tabName) {
   // Hide all tab contents
   document.querySelectorAll('.tab-content').forEach(tab => {
     tab.classList.remove('active');
@@ -146,7 +155,7 @@ async function loadSchema() {
   }
 
   try {
-    const response = await authFetch(`/api/schema/${selectedModel}`);
+    const response = await authFetch(`/api/schema/${encodeURIComponent(selectedModel)}`);
 
     // Check if schema exists (404 means not found)
     if (response.status === 404) {
@@ -215,7 +224,7 @@ async function saveSchema() {
   }
 
   try {
-    const response = await authFetch(`/api/schema/${model}`, {
+    const response = await authFetch(`/api/schema/${encodeURIComponent(model)}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -249,7 +258,7 @@ async function deleteSchema() {
   }
 
   try {
-    const response = await authFetch(`/api/schema/${model}`, {
+    const response = await authFetch(`/api/schema/${encodeURIComponent(model)}`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json'
@@ -292,7 +301,7 @@ async function loadCreateForm() {
   }
 
   try {
-    const response = await authFetch(`/api/schema/${selectedModel}`);
+    const response = await authFetch(`/api/schema/${encodeURIComponent(selectedModel)}`);
 
     if (response.status === 404) {
       alert('No schema found for this model. Please save a schema first.');
@@ -383,7 +392,7 @@ async function submitRecord() {
   });
 
   try {
-    const response = await authFetch(`/api/record/${selectedModel}`, {
+    const response = await authFetch(`/api/record/${encodeURIComponent(selectedModel)}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

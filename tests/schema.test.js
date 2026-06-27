@@ -381,5 +381,129 @@ describe('Schema', () => {
         await Schema.deleteSchema('nonexistent', testDb); // Should not throw
       });
     });
+
+    describe('createRecord / getRecord / updateRecord / deleteRecord', () => {
+      beforeEach(() => {
+        Schema.init(testDb);
+      });
+
+      it('should create and retrieve a record', async () => {
+        await Schema.createSchema('users', {
+          name: { type: 'string' },
+          age: { type: 'integer' }
+        }, testDb);
+
+        const record = await Schema.createRecord('users', { name: 'John', age: 30 }, testDb);
+        expect(record.name).toBe('John');
+        expect(record.age).toBe(30);
+
+        const results = await Schema.getRecord('users', { name: 'John' }, testDb);
+        expect(results.length).toBe(1);
+        expect(results[0].name).toBe('John');
+      });
+
+      it('should return empty array when no records match', async () => {
+        await Schema.createSchema('users', {
+          name: { type: 'string' },
+          age: { type: 'integer' }
+        }, testDb);
+
+        const results = await Schema.getRecord('users', { name: 'Nobody' }, testDb);
+        expect(results).toEqual([]);
+      });
+
+      it('should retrieve multiple matching records', async () => {
+        await Schema.createSchema('users', {
+          name: { type: 'string' },
+          age: { type: 'integer' }
+        }, testDb);
+
+        await Schema.createRecord('users', { name: 'John', age: 30 }, testDb);
+        await Schema.createRecord('users', { name: 'John', age: 25 }, testDb);
+
+        const results = await Schema.getRecord('users', { name: 'John' }, testDb);
+        expect(results.length).toBe(2);
+      });
+
+      it('should retrieve records using multiple field matches', async () => {
+        await Schema.createSchema('users', {
+          name: { type: 'string' },
+          age: { type: 'integer' }
+        }, testDb);
+
+        await Schema.createRecord('users', { name: 'John', age: 30 }, testDb);
+        await Schema.createRecord('users', { name: 'John', age: 25 }, testDb);
+
+        const results = await Schema.getRecord('users', { name: 'John', age: 30 }, testDb);
+        expect(results.length).toBe(1);
+        expect(results[0].age).toBe(30);
+      });
+
+      it('should update a record matching field criteria', async () => {
+        await Schema.createSchema('users', {
+          name: { type: 'string' },
+          age: { type: 'integer' }
+        }, testDb);
+
+        await Schema.createRecord('users', { name: 'John', age: 30 }, testDb);
+
+        const updated = await Schema.updateRecord('users', { name: 'John' }, { age: 35 }, testDb);
+        expect(updated.age).toBe(30); // Returns the record before update
+
+        const results = await Schema.getRecord('users', { name: 'John' }, testDb);
+        expect(results[0].age).toBe(35);
+      });
+
+      it('should throw when update matches no record', async () => {
+        await Schema.createSchema('users', {
+          name: { type: 'string' },
+          age: { type: 'integer' }
+        }, testDb);
+
+        await Schema.createRecord('users', { name: 'John', age: 30 }, testDb);
+
+        expect(
+          () => Schema.updateRecord('users', { name: 'Nobody' }, { age: 35 }, testDb)
+        ).toThrow(/No record found/);
+      });
+
+      it('should throw when update matches multiple records', async () => {
+        await Schema.createSchema('users', {
+          name: { type: 'string' },
+          age: { type: 'integer' }
+        }, testDb);
+
+        await Schema.createRecord('users', { name: 'John', age: 30 }, testDb);
+        await Schema.createRecord('users', { name: 'John', age: 25 }, testDb);
+
+        expect(
+          () => Schema.updateRecord('users', { name: 'John' }, { age: 35 }, testDb)
+        ).toThrow(/would affect 2 records/);
+      });
+
+      it('should delete records matching field criteria', async () => {
+        await Schema.createSchema('users', {
+          name: { type: 'string' },
+          age: { type: 'integer' }
+        }, testDb);
+
+        await Schema.createRecord('users', { name: 'John', age: 30 }, testDb);
+        await Schema.createRecord('users', { name: 'Jane', age: 25 }, testDb);
+
+        await Schema.deleteRecord('users', { name: 'John' }, testDb);
+
+        const results = await Schema.getRecord('users', { name: 'Jane' }, testDb);
+        expect(results.length).toBe(1);
+        expect(results[0].name).toBe('Jane');
+      });
+
+      it('should not fail deleting with no matches', async () => {
+        await Schema.createSchema('users', {
+          name: { type: 'string' }
+        }, testDb);
+
+        await Schema.deleteRecord('users', { name: 'Nobody' }, testDb); // Should not throw
+      });
+    });
   });
 });

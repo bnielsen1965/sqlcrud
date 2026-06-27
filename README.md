@@ -4,6 +4,15 @@ An SQLite database service with a RESTful CRUD interface and JSON schema managem
 
 sqlcrud is a Node.js service that uses SQLite to store schema-based data in tables. A JSON schema defines the structure of each SQLite table and governs how data is stored and retrieved as JavaScript objects.
 
+
+## Preface
+
+Significant portions of the code and documentation was written by AI. I am experimenting 
+with local AI assistance using an ASRock AMD Radeon AI Pro R9700 32GB in a DEG1 dock with 
+Oculink connection to a linux workstation. Various agents and models were used to evaluate 
+their effectiveness and value in the development process.
+
+
 ## Table of Contents
 
 - [Features](#features)
@@ -272,41 +281,81 @@ Delete a schema and drop the corresponding table.
 
 ### Records
 
+Record endpoints use URL query parameters to specify field match criteria for the SQL `WHERE` clause. Multiple query parameters are combined with `AND`.
+
 #### `GET /api/record/:model`
 
-Get a record by ID. Requires an `id` query parameter or path segment.
+Retrieve records matching field criteria from the query string.
+
+**Query Parameters:** Any field name(s) from the model schema.
+
+| Parameter | Description |
+|-----------|-------------|
+| Any schema field | Field value to match (e.g., `?name=John&age=30`) |
 
 **Response:**
-- `200 OK` — The record object.
-- `404` — `{ "error": "Record '...' not found for model '...'." }`
+- `200 OK` — Array of matching record objects.
+- `404` — `{ "error": "No records found for model '...'." }`
+- `500` — `{ "error": "..." }`
+
+**Example:**
+
+```
+GET /api/record/users?name=John&age=30
+```
 
 #### `POST /api/record/:model`
 
-Create a new record. Validates `notnull` constraints against the schema.
+Create a new record in the model table.
 
 **Request Body:** Record data object.
 
 **Response:**
-- `200 OK` — `{ "id": <number>, "success": true }`
-- `500` — `{ "error": "..." }` (missing required fields, model not found, etc.)
+- `200 OK` — The created record object.
+- `500` — `{ "error": "..." }` (model table does not exist, etc.)
 
-#### `PUT /api/record/:model/:id`
+**Example:**
 
-Update an existing record by ID.
+```
+POST /api/record/users
+{ "name": "John", "age": 30 }
+```
 
-**Request Body:** Updated record data.
+#### `PUT /api/record/:model`
+
+Update a single existing record. Query parameters identify the target record. An error is thrown if the criteria match zero records or more than one record — provide enough fields to uniquely identify the record.
+
+**Query Parameters:** Field name(s) from the model schema to locate the record.
+
+**Request Body:** Updated field values.
+
+**Response:**
+- `200 OK` — The record (as it was before the update).
+- `500` — `{ "error": "No record found matching criteria..." }` if no match.
+- `500` — `{ "error": "Update would affect N records..." }` if multiple matches.
+
+**Example:**
+
+```
+PUT /api/record/users?name=John
+{ "age": 31 }
+```
+
+#### `DELETE /api/record/:model`
+
+Delete records matching field criteria from the query string. Deletes all records that match.
+
+**Query Parameters:** Any field name(s) from the model schema.
 
 **Response:**
 - `200 OK` — `{ "success": true }`
 - `500` — `{ "error": "..." }`
 
-#### `DELETE /api/record/:model/:id`
+**Example:**
 
-Delete a record by ID.
-
-**Response:**
-- `200 OK` — `{ "success": true }`
-- `500` — `{ "error": "..." }`
+```
+DELETE /api/record/users?name=John
+```
 
 ---
 
@@ -363,7 +412,7 @@ index.js
 
 ## Testing
 
-The test suite uses **Vitest** with **Supertest** for HTTP integration tests. It covers 108 tests across 5 files:
+The test suite uses **Vitest** with **Supertest** for HTTP integration tests. It covers 118 tests across 5 files:
 
 ```bash
 # Run all tests once
@@ -379,9 +428,9 @@ npm run test:watch
 |------|-------|-------|
 | `tests/constants.test.js` | 10 | Constants and SchemaTypes mappings |
 | `tests/jsonconfig.test.js` | 9 | Config file reading, JSON parsing, error handling, deep merge |
-| `tests/schema.test.js` | 48 | Type conversion, column SQL generation, schema validation, object-to-schema inference, database CRUD operations |
-| `tests/database.test.js` | 13 | Connection lifecycle, table listing, SQL execution, prepared statements, record validation |
-| `tests/webserver.test.js` | 28 | Full HTTP API — schema CRUD, model listing, table listing, record creation validation, basic auth enforcement |
+| `tests/schema.test.js` | 62 | Type conversion, column SQL generation, schema validation, object-to-schema inference, database schema CRUD, record CRUD operations |
+| `tests/database.test.js` | 10 | Connection lifecycle, table listing, SQL execution, prepared statements |
+| `tests/webserver.test.js` | 32 | Full HTTP API — schema CRUD, model listing, table listing, record CRUD with query parameters, basic auth enforcement |
 
 ---
 
@@ -400,6 +449,6 @@ The UI communicates with the backend entirely through the REST API endpoints des
 ## Known Limitations
 
 - **`node:sqlite` is experimental** — Requires Node.js >= 24 and may emit runtime warnings.
-- **Record creation/update** — The `createRecord` method in `lib/database.js` references `runSQL()` and `getSQL()` methods which are not yet implemented. Record CRUD endpoints return 500 until these are added.
 - **No migration system** — Schema updates replace the stored definition but do not alter existing table columns.
 - **Single database file** — No multi-database or connection pooling support.
+- **No type conversion** — Record values are passed directly to SQLite without type coercion. Boolean values (`true`/`false`) are not converted to `1`/`0` and will cause binding errors.
