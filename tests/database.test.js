@@ -117,4 +117,17 @@ describe('Database', () => {
     });
   });
 
+  describe('stop guard', () => {
+    it('should not throw when stop is called without start', () => {
+      const freshDb = new Database({ filename: TEST_DB_FILE });
+      expect(() => freshDb.stop()).not.toThrow();
+    });
+
+    it('should not throw when stop is called twice', () => {
+      expect(() => db.stop()).not.toThrow();
+      expect(() => db.stop()).not.toThrow();
+      started = false;
+    });
+  });
+
  });

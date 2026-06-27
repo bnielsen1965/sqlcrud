@@ -72,6 +72,71 @@ describe('Schema', () => {
     });
   });
 
+  describe('validateModelName', () => {
+    it('should accept valid model names', () => {
+      expect(() => Schema.validateModelName('users')).not.toThrow();
+      expect(() => Schema.validateModelName('_internal')).not.toThrow();
+      expect(() => Schema.validateModelName('a1_b2')).not.toThrow();
+    });
+
+    it('should reject empty or null model names', () => {
+      expect(() => Schema.validateModelName('')).toThrow(/Invalid model name/);
+      expect(() => Schema.validateModelName(null)).toThrow(/Invalid model name/);
+      expect(() => Schema.validateModelName(undefined)).toThrow(/Invalid model name/);
+    });
+
+    it('should reject model names with invalid characters', () => {
+      expect(() => Schema.validateModelName('my-model')).toThrow(/Invalid model name/);
+      expect(() => Schema.validateModelName('1abc')).toThrow(/Invalid model name/);
+      expect(() => Schema.validateModelName('has space')).toThrow(/Invalid model name/);
+      expect(() => Schema.validateModelName("has'dquote")).toThrow(/Invalid model name/);
+    });
+  });
+
+  describe('validateFieldName', () => {
+    it('should accept valid field names', () => {
+      expect(() => Schema.validateFieldName('name')).not.toThrow();
+      expect(() => Schema.validateFieldName('_id')).not.toThrow();
+      expect(() => Schema.validateFieldName('a1_b2')).not.toThrow();
+    });
+
+    it('should reject empty or null field names', () => {
+      expect(() => Schema.validateFieldName('')).toThrow(/Invalid field name/);
+      expect(() => Schema.validateFieldName(null)).toThrow(/Invalid field name/);
+      expect(() => Schema.validateFieldName(undefined)).toThrow(/Invalid field name/);
+    });
+
+    it('should reject field names with invalid characters', () => {
+      expect(() => Schema.validateFieldName('my-field')).toThrow(/Invalid field name/);
+      expect(() => Schema.validateFieldName('1abc')).toThrow(/Invalid field name/);
+      expect(() => Schema.validateFieldName('has space')).toThrow(/Invalid field name/);
+    });
+  });
+
+  describe('validateFieldNameForParams', () => {
+    it('should accept valid non-reserved field names', () => {
+      expect(() => Schema.validateFieldNameForParams('name')).not.toThrow();
+      expect(() => Schema.validateFieldNameForParams('_id')).not.toThrow();
+    });
+
+    it('should reject reserved field names', () => {
+      expect(() => Schema.validateFieldNameForParams('model')).toThrow(/reserved/);
+      expect(() => Schema.validateFieldNameForParams('schema')).toThrow(/reserved/);
+    });
+
+    it('should reject invalid field names', () => {
+      expect(() => Schema.validateFieldNameForParams('')).toThrow(/Invalid field name/);
+      expect(() => Schema.validateFieldNameForParams('bad-name')).toThrow(/Invalid field name/);
+    });
+  });
+
+  describe('paramKey', () => {
+    it('should prefix field names with $fld_', () => {
+      expect(Schema.paramKey('name')).toBe('$fld_name');
+      expect(Schema.paramKey('_id')).toBe('$fld__id');
+    });
+  });
+
   describe('schemaToColumns', () => {
     it('should generate basic column definitions', () => {
       const schema = {
@@ -192,7 +257,7 @@ describe('Schema', () => {
     });
 
     it('should accept all valid types', () => {
-      const validTypes = ['string', 'integer', 'float', 'boolean', 'json', 'datetime'];
+      const validTypes = ['string', 'integer', 'float', 'boolean', 'json', 'datetime', 'time'];
       for (const type of validTypes) {
         const schema = { field: { type } };
         expect(Schema.validateSchema(schema)).toBe(true);
@@ -447,8 +512,9 @@ describe('Schema', () => {
 
         await Schema.createRecord('users', { name: 'John', age: 30 }, testDb);
 
-        const updated = await Schema.updateRecord('users', { name: 'John' }, { age: 35 }, testDb);
-        expect(updated.age).toBe(30); // Returns the record before update
+        const result = await Schema.updateRecord('users', { name: 'John' }, { age: 35 }, testDb);
+        expect(result.before.age).toBe(30);
+        expect(result.after.age).toBe(35);
 
         const results = await Schema.getRecord('users', { name: 'John' }, testDb);
         expect(results[0].age).toBe(35);
@@ -503,6 +569,70 @@ describe('Schema', () => {
         }, testDb);
 
         await Schema.deleteRecord('users', { name: 'Nobody' }, testDb); // Should not throw
+      });
+
+      it('should return the persisted row from createRecord', async () => {
+        await Schema.createSchema('users', {
+          name: { type: 'string' },
+          age: { type: 'integer' }
+        }, testDb);
+
+        const record = await Schema.createRecord('users', { name: 'Jane', age: 25 }, testDb);
+        expect(record.name).toBe('Jane');
+        expect(record.age).toBe(25);
+      });
+
+      it('should return {before, after} from updateRecord', async () => {
+        await Schema.createSchema('users', {
+          name: { type: 'string' },
+          age: { type: 'integer' }
+        }, testDb);
+
+        await Schema.createRecord('users', { name: 'Alice', age: 20 }, testDb);
+
+        const result = await Schema.updateRecord('users', { name: 'Alice' }, { age: 21 }, testDb);
+        expect(result.before).toBeDefined();
+        expect(result.after).toBeDefined();
+        expect(result.before.age).toBe(20);
+        expect(result.after.age).toBe(21);
+      });
+
+      it('should reject reserved field names in CRUD operations', async () => {
+        await Schema.createSchema('items', {
+          label: { type: 'string' },
+          value: { type: 'integer' }
+        }, testDb);
+
+        // createRecord with reserved field name should throw
+        expect(
+          () => Schema.createRecord('items', { model: 'bad' }, testDb)
+        ).toThrow(/reserved/);
+
+        // getRecord with reserved field name should throw
+        expect(
+          () => Schema.getRecord('items', { schema: 'bad' }, testDb)
+        ).toThrow(/reserved/);
+      });
+
+      it('should delete schema by dropping table before deleting schema record', async () => {
+        await Schema.createSchema('temp', {
+          name: { type: 'string' }
+        }, testDb);
+
+        // Create a record
+        await Schema.createRecord('temp', { name: 'test' }, testDb);
+
+        // Delete the schema
+        await Schema.deleteSchema('temp', testDb);
+
+        // Verify schema is gone
+        const result = await Schema.getSchema('temp', testDb);
+        expect(result).toBeNull();
+
+        // Verify table is gone
+        const stmt = testDb.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'temp'");
+        const tables = stmt.all();
+        expect(tables.length).toBe(0);
       });
     });
   });

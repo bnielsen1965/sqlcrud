@@ -101,5 +101,26 @@ describe('JSONConfig', () => {
       expect(result).toEqual({ own: 'value' });
       expect(result.inherited).toBeUndefined();
     });
+
+    it('should replace arrays instead of merging by index', () => {
+      const o1 = { tags: ['a', 'b'] };
+      const o2 = { tags: ['x'] };
+      const result = JSONConfig.merge(o1, o2);
+      expect(result.tags).toEqual(['x']);
+    });
+
+    it('should not recursively merge arrays', () => {
+      const o1 = { items: [{ a: 1 }, { b: 2 }] };
+      const o2 = { items: [{ c: 3 }] };
+      const result = JSONConfig.merge(o1, o2);
+      expect(result.items).toEqual([{ c: 3 }]);
+    });
+
+    it('should deeply merge nested objects while replacing arrays', () => {
+      const o1 = { a: { b: 1, tags: ['x', 'y'] } };
+      const o2 = { a: { c: 2, tags: ['z'] } };
+      const result = JSONConfig.merge(o1, o2);
+      expect(result).toEqual({ a: { b: 1, c: 2, tags: ['z'] } });
+    });
   });
 });

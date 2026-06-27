@@ -5,5 +5,10 @@ export default defineConfig({
     globals: false,
     testTimeout: 10000,
     setupFiles: ['./tests/setup.js'],
+    coverage: {
+      enabled: true,
+      provider: 'v8',
+      reporter: ['text', 'json', 'lcov'],
+    },
   },
 });
