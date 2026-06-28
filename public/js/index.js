@@ -481,12 +481,13 @@ async function loadRecords() {
       }
     }
 
-    // Build table headers from keys of first record
+    // Build table headers from keys of first record plus an Actions column
     const headers = Object.keys(records[0]);
     let headHtml = '<tr>';
     headers.forEach(h => {
       headHtml += `<th style="padding: 8px; border: 1px solid #ddd; text-align: left; background: #f5f5f5;">${h}</th>`;
     });
+    headHtml += '<th style="padding: 8px; border: 1px solid #ddd; text-align: center; background: #f5f5f5;">Actions</th>';
     headHtml += '</tr>';
     recordsHead.innerHTML = headHtml;
 
@@ -500,12 +501,44 @@ async function loadRecords() {
         td.style.border = '1px solid #ddd';
         td.style.cursor = 'pointer';
         td.textContent = row[h] ?? '';
-const clickHandler = function () {
+        const clickHandler = function () {
           editCell(td, selectedModel, h, td.textContent ?? '');
         };
         td.addEventListener('click', clickHandler);
         tr.appendChild(td);
       });
+
+      // Actions cell (Copy + Delete buttons)
+      const actionsTd = document.createElement('td');
+      actionsTd.style.padding = '8px';
+      actionsTd.style.border = '1px solid #ddd';
+      actionsTd.style.textAlign = 'center';
+      actionsTd.style.whiteSpace = 'nowrap';
+
+      const copyBtn = document.createElement('button');
+      copyBtn.textContent = 'Copy';
+      copyBtn.style.padding = '4px 8px';
+      copyBtn.style.cursor = 'pointer';
+      copyBtn.style.marginRight = '4px';
+      copyBtn.title = 'Copy record as JSON';
+      copyBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        copyRecord(row);
+      });
+      actionsTd.appendChild(copyBtn);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.style.padding = '4px 8px';
+      deleteBtn.style.cursor = 'pointer';
+      deleteBtn.style.color = 'red';
+      deleteBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        deleteRecord(selectedModel, row, pkFields, tr);
+      });
+      actionsTd.appendChild(deleteBtn);
+      tr.appendChild(actionsTd);
+
       recordsBody.appendChild(tr);
     });
     recordsMessage.textContent = `Showing ${records.length} record(s). Click a cell to edit.`;
@@ -516,6 +549,56 @@ const clickHandler = function () {
     recordsMessage.textContent = 'Error loading records. Please try again.';
     recordsMessage.style.color = 'red';
   }
+}
+
+/**
+ * Copy the entire record as formatted JSON to the clipboard.
+ * @param {object} row - the record data
+ */
+function copyRecord(row) {
+  const json = JSON.stringify(row, null, 2);
+  navigator.clipboard.writeText(json).then(() => {
+    document.getElementById('recordsMessage').textContent = 'Record copied to clipboard.';
+    document.getElementById('recordsMessage').style.color = 'green';
+  }).catch(err => {
+    console.error('Error copying to clipboard:', err);
+    document.getElementById('recordsMessage').textContent = 'Failed to copy to clipboard.';
+    document.getElementById('recordsMessage').style.color = 'red';
+  });
+}
+
+/**
+ * Delete a record, confirming with the user first.
+ * @param {string} model - model name
+ * @param {object} row - the record data (used to identify via primary keys)
+ * @param {string[]} pkFields - array of primary key field names
+ * @param {HTMLTableRowElement} tr - the table row to remove from DOM
+ */
+function deleteRecord(model, row, pkFields, tr) {
+  // Build confirmation message from primary key values
+  const pkDesc = pkFields.map(f => `${f}: ${row[f] ?? ''}`).join(', ');
+  if (!confirm(`Delete record (${pkDesc})?`)) return;
+
+  const query = {};
+  pkFields.forEach(f => { query[f] = row[f] ?? ''; });
+  const queryString = new URLSearchParams(query).toString();
+
+  authFetch(
+    `/api/record/${encodeURIComponent(model)}${queryString ? '?' + queryString : ''}`,
+    { method: 'DELETE' }
+  ).then(async response => {
+    if (!response.ok) {
+      const result = await response.json();
+      alert('Error deleting record: ' + (result.error || 'Unknown error'));
+      return;
+    }
+    tr.remove();
+    document.getElementById('recordsMessage').textContent = 'Record deleted.';
+    document.getElementById('recordsMessage').style.color = 'green';
+  }).catch(err => {
+    console.error('Error deleting record:', err);
+    alert('Error deleting record. Please try again.');
+  });
 }
 
 /**
