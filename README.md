@@ -24,8 +24,10 @@ their effectiveness and value in the development process.
 - [Schema Format](#schema-format)
 - [API Reference](#api-reference)
 - [Architecture](#architecture)
+- [Security](#security)
 - [Testing](#testing)
 - [Web Interface](#web-interface)
+- [Known Limitations](#known-limitations)
 
 ---
 
@@ -148,10 +150,11 @@ The application will start the database connection, initialize the schema system
 
 | Signal | Action |
 |--------|--------|
-| `SIGINT` | Begin shutdown countdown |
+| `SIGINT` | Begin shutdown countdown (repeated signals force exit after countdown) |
 | `SIGTERM` | Begin graceful shutdown |
 | `SIGHUP` | Begin graceful shutdown |
 | `uncaughtException` | Log error and begin shutdown |
+| `unhandledRejection` | Log error and begin shutdown |
 
 ---
 
@@ -212,6 +215,29 @@ Schemas are plain JSON objects mapping field names to field definitions. Each fi
 | `primary` | boolean | Column is a primary key |
 | `notnull` | boolean | Column cannot be `NULL` |
 
+### Schema Inference
+
+The `Schema.schemaFromObject()` utility can infer a schema definition from a JavaScript object, inferring types from the values:
+
+```javascript
+import Schema from './lib/schema.js';
+
+const example = {
+  name: "John Doe",
+  age: 30,
+  active: true,
+  metadata: { role: "admin" }
+};
+
+const inferredSchema = Schema.schemaFromObject(example);
+// {
+//   name:     { type: "string", length: 8, notnull: true },
+//   age:      { type: "integer" },
+//   active:   { type: "boolean" },
+//   metadata: { type: "json" }
+// }
+```
+
 ---
 
 ## API Reference
@@ -261,13 +287,13 @@ Retrieve the schema definition for a model.
 
 #### `POST /api/schema/:model`
 
-Create or update a schema. Creates the underlying SQLite table if it does not exist. If a schema already exists for the model, it is updated in place.
+Create or update a schema. Validates the schema before saving. Creates the underlying SQLite table if it does not exist. If a schema already exists for the model, it is updated in place (the table structure is not altered).
 
 **Request Body:** Schema JSON object.
 
 **Response:**
 - `200 OK` — The saved schema object.
-- `500` — `{ "error": "..." }`
+- `500` — `{ "error": "..." }` (validation failure, database error, etc.)
 
 #### `DELETE /api/schema/:model`
 
@@ -306,12 +332,12 @@ GET /api/record/users?name=John&age=30
 
 #### `POST /api/record/:model`
 
-Create a new record in the model table.
+Create a new record in the model table. Returns the actual persisted row, including any defaults, coercions, and the auto-generated `rowid`.
 
 **Request Body:** Record data object.
 
 **Response:**
-- `200 OK` — The created record object.
+- `200 OK` — The created record object (as stored in the database).
 - `500` — `{ "error": "..." }` (model table does not exist, etc.)
 
 **Example:**
@@ -330,7 +356,7 @@ Update a single existing record. Query parameters identify the target record. An
 **Request Body:** Updated field values.
 
 **Response:**
-- `200 OK` — The record (as it was before the update).
+- `200 OK` — Object containing `before` (the record as it was before the update) and `after` (the record as it is after the update).
 - `500` — `{ "error": "No record found matching criteria..." }` if no match.
 - `500` — `{ "error": "Update would affect N records..." }` if multiple matches.
 
@@ -368,6 +394,7 @@ sqlcrud/
 ├── index.js              # Entry point — parses args, starts Application
 ├── config.json           # Runtime configuration
 ├── package.json          # Project metadata and dependencies
+├── vitest.config.js      # Vitest test configuration (V8 coverage, 10s timeout)
 ├── lib/
 │   ├── application.js    # Orchestrates Database and WebServer lifecycle
 │   ├── constants.js      # Shared constants (table names, type mappings)
@@ -375,8 +402,7 @@ sqlcrud/
 │   ├── database.js       # SQLite database wrapper (connect, exec, prepare)
 │   ├── jsonconfig.js     # JSON config file reader and deep merge utility
 │   ├── schema.js         # Schema validation, SQL generation, table init
-│   ├── webserver.js      # Express/HTTP server, static file serving, TLS
-│   └── index.js          # Client-side module entry (empty)
+│   └── webserver.js      # Express/HTTP server, static file serving, TLS
 ├── public/               # Static web interface
 │   ├── index.html        # Schema viewer and record management UI
 │   ├── css/              # Stylesheets
@@ -402,34 +428,46 @@ index.js
               └── Schema      (table creation, schema storage/retrieval)
 ```
 
-1. **Application** reads `config.json` and initializes Database and WebServer.
-2. **Database** opens a connection to the SQLite file via `node:sqlite`.
-3. **WebServer** creates an Express app, registers body parsers, applies the basic auth middleware (if configured), and instantiates CRUDAPI.
-4. **CRUDAPI** calls `Schema.init()` to ensure the `schemas` table exists, then registers HTTP route handlers.
-5. **Schema** manages the `schemas` meta-table and creates/drops user tables from JSON definitions.
+1. **index.js** reads `config.json` and instantiates `Application` with the config.
+2. **Application** merges config with defaults, sets up signal handlers, and initializes Database and WebServer.
+3. **Database** opens a connection to the SQLite file via `node:sqlite` (`DatabaseSync`).
+4. **WebServer** creates an Express app, registers body parsers, applies the basic auth middleware (if configured), and instantiates CRUDAPI.
+5. **CRUDAPI** calls `Schema.init()` to ensure the `schemas` table exists, then registers HTTP route handlers.
+6. **Schema** manages the `schemas` meta-table and creates/drops user tables from JSON definitions.
+
+### Security
+
+The Schema module employs several defenses against SQL injection and parameter-binding collisions:
+
+- **Model name validation** — `validateModelName()` enforces that model names match `^[a-zA-Z_][a-zA-Z0-9_]*$`, preventing arbitrary SQL injection via table names (which cannot be parameterized).
+- **Field name validation** — `validateFieldName()` applies the same pattern to column names, which are interpolated into SQL.
+- **Parameter key prefixing** — `paramKey()` prepends `fld_` to every user-supplied field name before it becomes a SQLite named parameter, so user data never collides with internal parameter names like `$model` or `$schema`.
+- **Reserved field names** — Field names `model` and `schema` are rejected (`RESERVED_FIELD_NAMES`) to prevent collisions with internal schema-table query parameters.
 
 ---
 
 ## Testing
 
-The test suite uses **Vitest** with **Supertest** for HTTP integration tests. It covers 118 tests across 5 files:
+The test suite uses **Vitest** with **Supertest** for HTTP integration tests. It covers 137 tests across 5 files:
 
 ```bash
-# Run all tests once
+# Run all tests once (includes coverage report)
 npm test
 
 # Run with file watcher
 npm run test:watch
 ```
 
+Tests are configured via `vitest.config.js` with a 10-second timeout, V8-based coverage reporting, and shared setup in `tests/setup.js`.
+
 ### Test Coverage
 
 | File | Tests | Scope |
 |------|-------|-------|
 | `tests/constants.test.js` | 10 | Constants and SchemaTypes mappings |
-| `tests/jsonconfig.test.js` | 9 | Config file reading, JSON parsing, error handling, deep merge |
-| `tests/schema.test.js` | 62 | Type conversion, column SQL generation, schema validation, object-to-schema inference, database schema CRUD, record CRUD operations |
-| `tests/database.test.js` | 10 | Connection lifecycle, table listing, SQL execution, prepared statements |
+| `tests/jsonconfig.test.js` | 12 | Config file reading, JSON parsing, error handling, deep merge |
+| `tests/schema.test.js` | 76 | Type conversion, column SQL generation, schema validation, model/field name validation, object-to-schema inference, database schema CRUD, record CRUD operations |
+| `tests/database.test.js` | 12 | Connection lifecycle, table listing, SQL execution, prepared statements |
 | `tests/webserver.test.js` | 32 | Full HTTP API — schema CRUD, model listing, table listing, record CRUD with query parameters, basic auth enforcement |
 
 ---
@@ -440,7 +478,7 @@ The application serves a browser-based UI at `http://<host>:<port>/` featuring:
 
 - **Schema Tab** — View and edit JSON schemas with the ACE code editor (syntax highlighting, validation). Load, save, and delete model schemas.
 - **Create Record Tab** — Dynamically generated form based on the loaded schema for creating new records.
-- **View Records Tab** — Browse and manage records for any registered model.
+- **View Records Tab** — Browse records for any registered model in a table. Click any cell to edit the value inline with a Save/Cancel editor that adapts to the field type (text, number, checkbox, datetime).
 
 The UI communicates with the backend entirely through the REST API endpoints described above. When Basic Authentication is enabled, the interface prompts for credentials on first use and caches them for the session.
 
@@ -451,4 +489,4 @@ The UI communicates with the backend entirely through the REST API endpoints des
 - **`node:sqlite` is experimental** — Requires Node.js >= 24 and may emit runtime warnings.
 - **No migration system** — Schema updates replace the stored definition but do not alter existing table columns.
 - **Single database file** — No multi-database or connection pooling support.
-- **No type conversion** — Record values are passed directly to SQLite without type coercion. Boolean values (`true`/`false`) are not converted to `1`/`0` and will cause binding errors.
+- **Type coercion** — Boolean and JSON fields are coerced to and from SQLite-compatible types on read and write, but other conversions (e.g., string-to-integer) are not performed.

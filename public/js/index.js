@@ -3,6 +3,8 @@ const loadSchemaBtn = document.getElementById('loadSchemaBtn');
 const saveSchemaBtn = document.getElementById('saveSchemaBtn');
 const deleteSchemaBtn = document.getElementById('deleteSchemaBtn');
 const cancelBtn = document.getElementById('cancelBtn');
+const loadRecordsBtn = document.getElementById('loadRecordsBtn');
+const viewModelSelect = document.getElementById('viewModelSelect');
 
 let aceEditor;
 
@@ -131,12 +133,14 @@ async function loadModels() {
 
     document.getElementById('modelList').replaceChildren();
     document.getElementById('createModelList').replaceChildren();
+    document.getElementById('viewModelList').replaceChildren();
 
     models.forEach(function(model) {
       const option = document.createElement('option');
       option.value = model.model;
       document.getElementById('modelList').appendChild(option);
       document.getElementById('createModelList').appendChild(option.cloneNode(true));
+      document.getElementById('viewModelList').appendChild(option.cloneNode(true));
     });
   } catch (error) {
     console.error('Error loading models:', error);
@@ -423,6 +427,233 @@ async function submitRecord() {
   }
 }
 
+// Cache for schema so we know field types / primary keys when editing cells
+let recordsSchema = null;
+
+// Load records for selected model
+async function loadRecords() {
+  const selectedModel = viewModelSelect.value.trim();
+  const recordsHead = document.getElementById('recordsHead');
+  const recordsBody = document.getElementById('recordsBody');
+  const recordsMessage = document.getElementById('recordsMessage');
+
+  if (!selectedModel) {
+    alert('Please select a model.');
+    return;
+  }
+
+  try {
+    // Fetch records and schema in parallel
+    const [recordsResp, schemaResp] = await Promise.all([
+      authFetch(`/api/record/${encodeURIComponent(selectedModel)}`),
+      authFetch(`/api/schema/${encodeURIComponent(selectedModel)}`).catch(() => null),
+    ]);
+
+    // Cache schema for later field-type lookups when editing
+    if (schemaResp && schemaResp.ok) {
+      recordsSchema = await schemaResp.json();
+    } else {
+      recordsSchema = null;
+    }
+
+    if (recordsResp.status === 404) {
+      recordsHead.innerHTML = '';
+      recordsBody.innerHTML = '';
+      recordsMessage.textContent = 'No records found.';
+      recordsMessage.style.color = '#666';
+      return;
+    }
+
+    if (!recordsResp.ok) {
+      const result = await recordsResp.json();
+      recordsMessage.textContent = 'Error loading records: ' + (result.error || 'Unknown error');
+      recordsMessage.style.color = 'red';
+      return;
+    }
+
+    const records = await recordsResp.json();
+
+    // Determine primary key fields
+    const pkFields = [];
+    if (recordsSchema) {
+      for (const f in recordsSchema) {
+        if (recordsSchema[f].primary) pkFields.push(f);
+      }
+    }
+
+    // Build table headers from keys of first record
+    const headers = Object.keys(records[0]);
+    let headHtml = '<tr>';
+    headers.forEach(h => {
+      headHtml += `<th style="padding: 8px; border: 1px solid #ddd; text-align: left; background: #f5f5f5;">${h}</th>`;
+    });
+    headHtml += '</tr>';
+    recordsHead.innerHTML = headHtml;
+
+    // Build table rows — each cell is clickable for inline editing
+    recordsBody.innerHTML = '';
+    records.forEach(row => {
+      const tr = document.createElement('tr');
+      headers.forEach(h => {
+        const td = document.createElement('td');
+        td.style.padding = '8px';
+        td.style.border = '1px solid #ddd';
+        td.style.cursor = 'pointer';
+        td.textContent = row[h] ?? '';
+const clickHandler = function () {
+          editCell(td, selectedModel, h, td.textContent ?? '');
+        };
+        td.addEventListener('click', clickHandler);
+        tr.appendChild(td);
+      });
+      recordsBody.appendChild(tr);
+    });
+    recordsMessage.textContent = `Showing ${records.length} record(s). Click a cell to edit.`;
+    recordsMessage.style.color = 'green';
+
+  } catch (error) {
+    console.error('Error loading records:', error);
+    recordsMessage.textContent = 'Error loading records. Please try again.';
+    recordsMessage.style.color = 'red';
+  }
+}
+
+/**
+ * Replace a table cell's text with an inline editor (input + Save/Cancel).
+ * @param {HTMLTableCellElement} cell - the <td> being edited
+ * @param {string} model - model name
+ * @param {string} field - field name
+ * @param {*} value - current value
+ */
+function editCell(cell, model, field, value) {
+  // Don't re-enter edit mode if already editing
+  if (cell.querySelector('input')) return;
+
+  const fieldType = recordsSchema && recordsSchema[field] ? recordsSchema[field].type : 'string';
+
+  const editor = document.createElement('div');
+  editor.style.display = 'flex';
+  editor.style.gap = '4px';
+  editor.style.alignItems = 'center';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = value === null ? '' : String(value);
+  input.style.flex = '1';
+  input.style.padding = '4px';
+
+  // Adjust input type by field schema
+  if (fieldType === 'integer') input.type = 'number';
+  else if (fieldType === 'boolean') input.type = 'checkbox';
+  else if (fieldType === 'datetime') input.type = 'datetime-local';
+
+  if (fieldType === 'boolean') {
+    input.checked = value === 'true' || value === true || value === 1;
+  }
+
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = '✓';
+  saveBtn.title = 'Save';
+  saveBtn.style.cursor = 'pointer';
+  saveBtn.style.fontSize = '14px';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = '✗';
+  cancelBtn.title = 'Cancel';
+  cancelBtn.style.cursor = 'pointer';
+  cancelBtn.style.fontSize = '14px';
+
+  editor.appendChild(input);
+  editor.appendChild(saveBtn);
+  editor.appendChild(cancelBtn);
+
+  // Capture original text BEFORE modifying the cell
+  const originalText = value !== null ? String(value) : '';
+
+  cell.textContent = '';
+  cell.appendChild(editor);
+  input.focus();
+
+  // Gather primary-key values from sibling cells to identify the row
+  const row = cell.parentElement;
+  const headers = Array.from(document.getElementById('recordsHead').querySelectorAll('th')).map(th => th.textContent);
+  const pkFields = [];
+  if (recordsSchema) {
+    for (const f in recordsSchema) {
+      if (recordsSchema[f].primary) pkFields.push(f);
+    }
+  }
+
+  const restoreCell = () => { cell.textContent = originalText; };
+
+  const getQueryParams = () => {
+    const params = {};
+    pkFields.forEach((pk, i) => {
+      const td = row.children[i];
+      params[pk] = td ? (td.textContent ?? '') : '';
+    });
+    return params;
+  };
+
+  const saveAndRefresh = async () => {
+    let newValue;
+    if (fieldType === 'boolean') {
+      newValue = input.checked ? 'true' : 'false';
+    } else {
+      newValue = input.value;
+    }
+
+    const query = getQueryParams();
+    const queryString = new URLSearchParams(query).toString();
+
+    try {
+      const response = await authFetch(
+        `/api/record/${encodeURIComponent(model)}${queryString ? '?' + queryString : ''}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [field]: newValue })
+        }
+      );
+      const result = await response.json();
+
+      if (!response.ok) {
+        alert('Error updating record: ' + (result.error || 'Unknown error'));
+        restoreCell();
+        return;
+      }
+
+      // Update cell with new value
+      cell.textContent = newValue;
+
+      // Update message
+      document.getElementById('recordsMessage').textContent = 'Record updated.';
+      document.getElementById('recordsMessage').style.color = 'green';
+    } catch (err) {
+      console.error('Error saving cell:', err);
+      restoreCell();
+    }
+  };
+
+  cancelBtn.addEventListener('click', e => {
+    e.stopPropagation();  // prevent cell's click handler from re-entering edit mode
+    restoreCell();
+  });
+
+  saveBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    saveAndRefresh();
+  });
+
+  // Save on Enter, cancel on Escape
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveAndRefresh();
+    if (e.key === 'Escape') {
+      restoreCell();
+    }
+  });
+}
+
 // Cancel record creation
 function cancelRecord() {
   const selectedModel = document.getElementById('createModelSelect').value.trim();
@@ -446,6 +677,8 @@ deleteSchemaBtn.addEventListener('click', deleteSchema);
 cancelBtn.addEventListener('click', cancel);
 submitRecordBtn.addEventListener('click', submitRecord);
 cancelRecordBtn.addEventListener('click', cancelRecord);
+loadRecordsBtn.addEventListener('click', loadRecords);
+viewModelSelect.addEventListener('change', loadRecords);
 
 // Initialize on page load
 initAceEditor();

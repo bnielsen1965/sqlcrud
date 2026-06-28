@@ -90,6 +90,27 @@
     </div>
   </div>
 
+  <!-- View Records Tab -->
+  <div id="viewRecordsTab" class="tab-content">
+    <div class="form-group">
+      <label for="viewModelSelect">Model Name:</label>
+      <input type="text" id="viewModelSelect" list="viewModelList" placeholder="Enter or select a model name">
+      <datalist id="viewModelList"></datalist>
+    </div>
+
+    <div style="margin-top: 15px;">
+      <button id="loadRecordsBtn" style="padding: 10px 20px;">Load Records</button>
+    </div>
+
+    <div id="recordsContainer" style="margin-top: 20px; overflow-x: auto;">
+      <table id="recordsTable" style="width: 100%; border-collapse: collapse;">
+        <thead id="recordsHead"></thead>
+        <tbody id="recordsBody"></tbody>
+      </table>
+    </div>
+    <div id="recordsMessage" style="margin-top: 10px; font-style: italic;"></div>
+  </div>
+
   <!-- Load ACE Editor -->
   <script src="/js/ace/ace.js"></script>
 

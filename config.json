@@ -6,7 +6,7 @@
   "WebServer": {
     "port": 3123,
     "basicAuth": {
-      "enabled": true,
+      "enabled": false,
       "username": "admin",
       "password": "password"
     }
