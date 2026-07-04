@@ -132,15 +132,31 @@ async function loadModels() {
     const models = await response.json();
 
     document.getElementById('modelList').replaceChildren();
-    document.getElementById('createModelList').replaceChildren();
-    document.getElementById('viewModelList').replaceChildren();
+
+    // Keep the "Select a model" placeholder as the first option in the dropdowns
+    const createModelSelect = document.getElementById('createModelSelect');
+    createModelSelect.innerHTML = '<option value="">Select a model</option>';
+
+    const viewModelSelect = document.getElementById('viewModelSelect');
+    viewModelSelect.innerHTML = '<option value="">Select a model</option>';
 
     models.forEach(function(model) {
       const option = document.createElement('option');
       option.value = model.model;
-      document.getElementById('modelList').appendChild(option);
-      document.getElementById('createModelList').appendChild(option.cloneNode(true));
-      document.getElementById('viewModelList').appendChild(option.cloneNode(true));
+
+      // Datalist options display their value; select options display their text content
+      const datalistOption = option;
+      document.getElementById('modelList').appendChild(datalistOption);
+
+      const createOption = document.createElement('option');
+      createOption.value = model.model;
+      createOption.textContent = model.model;
+      createModelSelect.appendChild(createOption);
+
+      const viewOption = document.createElement('option');
+      viewOption.value = model.model;
+      viewOption.textContent = model.model;
+      viewModelSelect.appendChild(viewOption);
     });
   } catch (error) {
     console.error('Error loading models:', error);
@@ -472,6 +488,15 @@ async function loadRecords() {
     }
 
     const records = await recordsResp.json();
+
+    // Handle empty result set
+    if (!records || records.length === 0) {
+      recordsHead.innerHTML = '';
+      recordsBody.innerHTML = '';
+      recordsMessage.textContent = 'No records found.';
+      recordsMessage.style.color = '#666';
+      return;
+    }
 
     // Determine primary key fields
     const pkFields = [];
