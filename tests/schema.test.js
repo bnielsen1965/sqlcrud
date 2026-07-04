@@ -161,7 +161,7 @@ describe('Schema', () => {
         id: { type: 'integer', primary: true }
       };
       const columns = Schema.schemaToColumns(schema);
-      expect(columns).toContain('id INTEGER PRIMARY KEY');
+      expect(columns).toContain('PRIMARY KEY (id)');
     });
 
     it('should handle notnull constraint', () => {
@@ -212,7 +212,8 @@ describe('Schema', () => {
         id: { type: 'integer', primary: true, notnull: true }
       };
       const columns = Schema.schemaToColumns(schema);
-      expect(columns).toContain('id INTEGER PRIMARY KEY NOT NULL');
+      expect(columns).toContain('id INTEGER NOT NULL');
+      expect(columns).toContain('PRIMARY KEY (id)');
     });
 
     it('should join multiple columns with comma', () => {

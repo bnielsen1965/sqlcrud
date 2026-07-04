@@ -220,12 +220,14 @@ describe('WebServer / CRUDAPI', () => {
       await request(app).post('/api/schema/users').send(schema);
     });
 
-    it('should return 404 when no records match', async () => {
+    it('should return empty array when no records match', async () => {
       const response = await request(app)
         .get('/api/record/users')
         .query({ name: 'Nobody' });
 
-      expect(response.status).toBe(404);
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body.length).toBe(0);
     });
 
     it('should return records matching a single field', async () => {
@@ -329,7 +331,8 @@ describe('WebServer / CRUDAPI', () => {
         .get('/api/record/users')
         .query({ name: 'John' });
 
-      expect(check.status).toBe(404);
+      expect(check.status).toBe(200);
+      expect(check.body.length).toBe(0);
     });
 
     it('should not fail when deleting with no matches', async () => {
@@ -338,6 +341,113 @@ describe('WebServer / CRUDAPI', () => {
         .query({ name: 'Nobody' });
 
       expect(response.status).toBe(200);
+    });
+  });
+
+  describe('primary key constraints', () => {
+    it('should enforce single-column primary key uniqueness', async () => {
+      const schema = {
+        id: { type: 'integer', primary: true },
+        name: { type: 'string' }
+      };
+      await request(app).post('/api/schema/items').send(schema);
+
+      // First insert with id=1 should succeed
+      const r1 = await request(app)
+        .post('/api/record/items')
+        .send({ id: 1, name: 'First' });
+      expect(r1.status).toBe(200);
+      expect(r1.body.id).toBe(1);
+
+      // Second insert with the same id should fail (duplicate primary key)
+      const r2 = await request(app)
+        .post('/api/record/items')
+        .send({ id: 1, name: 'Duplicate' });
+      expect(r2.status).toBe(500);
+      expect(r2.body.error).toMatch(/UNIQUE|primary/i);
+    });
+
+    it('should allow lookup and update by primary key', async () => {
+      const schema = {
+        id: { type: 'integer', primary: true },
+        value: { type: 'string' }
+      };
+      await request(app).post('/api/schema/config').send(schema);
+
+      await request(app)
+        .post('/api/record/config')
+        .send({ id: 42, value: 'initial' });
+
+      // Lookup by primary key
+      const get = await request(app)
+        .get('/api/record/config')
+        .query({ id: 42 });
+      expect(get.status).toBe(200);
+      expect(get.body.length).toBe(1);
+      expect(get.body[0].value).toBe('initial');
+
+      // Update by primary key — should match exactly one record
+      const update = await request(app)
+        .put('/api/record/config?id=42')
+        .send({ value: 'updated' });
+      expect(update.status).toBe(200);
+      expect(update.body.after.value).toBe('updated');
+    });
+
+    it('should enforce composite primary key uniqueness', async () => {
+      const schema = {
+        student_id: { type: 'integer', primary: true },
+        course_id: { type: 'integer', primary: true },
+        grade: { type: 'string' }
+      };
+      await request(app).post('/api/schema/enrollments').send(schema);
+
+      // First insert should succeed
+      const r1 = await request(app)
+        .post('/api/record/enrollments')
+        .send({ student_id: 1, course_id: 101, grade: 'A' });
+      expect(r1.status).toBe(200);
+
+      // Insert with different student but same course is fine
+      const r2 = await request(app)
+        .post('/api/record/enrollments')
+        .send({ student_id: 2, course_id: 101, grade: 'B' });
+      expect(r2.status).toBe(200);
+
+      // Insert with same student and same course should fail (duplicate composite key)
+      const r3 = await request(app)
+        .post('/api/record/enrollments')
+        .send({ student_id: 1, course_id: 101, grade: 'C' });
+      expect(r3.status).toBe(500);
+      expect(r3.body.error).toMatch(/UNIQUE|primary/i);
+    });
+
+    it('should allow lookup and update by composite primary key', async () => {
+      const schema = {
+        tenant_id: { type: 'integer', primary: true },
+        setting_key: { type: 'string', primary: true },
+        setting_value: { type: 'string' }
+      };
+      await request(app).post('/api/schema/settings').send(schema);
+
+      await request(app)
+        .post('/api/record/settings')
+        .send({ tenant_id: 1, setting_key: 'theme', setting_value: 'dark' });
+
+      // Lookup by both composite key fields
+      const get = await request(app)
+        .get('/api/record/settings')
+        .query({ tenant_id: 1, setting_key: 'theme' });
+      expect(get.status).toBe(200);
+      expect(get.body.length).toBe(1);
+      expect(get.body[0].setting_value).toBe('dark');
+
+      // Update by composite key — should match exactly one record
+      const update = await request(app)
+        .put('/api/record/settings?tenant_id=1&setting_key=theme')
+        .send({ setting_value: 'light' });
+      expect(update.status).toBe(200);
+      expect(update.body.after.setting_value).toBe('light');
     });
   });
 });
