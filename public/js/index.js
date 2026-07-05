@@ -639,6 +639,12 @@ function editCell(cell, model, field, value) {
 
   const fieldType = recordsSchema && recordsSchema[field] ? recordsSchema[field].type : 'string';
 
+  // JSON fields cannot be edited in the viewer
+  if (fieldType === 'json') {
+    alert('JSON type fields cannot be modified in the viewer.');
+    return;
+  }
+
   const editor = document.createElement('div');
   editor.style.display = 'flex';
   editor.style.gap = '4px';
