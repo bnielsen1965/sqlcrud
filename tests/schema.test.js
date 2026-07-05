@@ -636,5 +636,91 @@ describe('Schema', () => {
         expect(tables.length).toBe(0);
       });
     });
+
+    describe('JSON type field serialization and deserialization', () => {
+      beforeEach(() => {
+        Schema.init(testDb);
+      });
+
+      it('should serialize an object on create and deserialize on read', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          metadata: { type: 'json' }
+        }, testDb);
+
+        const obj = { color: 'red', sizes: [1, 2, 3] };
+        const record = await Schema.createRecord('items', { name: 'Widget', metadata: obj }, testDb);
+
+        // Returned record should have the object (deserialized)
+        expect(record.metadata).toEqual(obj);
+
+        // Retrieve the record
+        const results = await Schema.getRecord('items', { name: 'Widget' }, testDb);
+        expect(results.length).toBe(1);
+        expect(results[0].metadata).toEqual(obj);
+      });
+
+      it('should serialize an array on create and deserialize on read', async () => {
+        await Schema.createSchema('lists', {
+          title: { type: 'string' },
+          tags: { type: 'json' }
+        }, testDb);
+
+        const arr = ['a', 'b', 'c'];
+        const record = await Schema.createRecord('lists', { title: 'MyList', tags: arr }, testDb);
+
+        expect(record.tags).toEqual(arr);
+
+        const results = await Schema.getRecord('lists', { title: 'MyList' }, testDb);
+        expect(results[0].tags).toEqual(arr);
+      });
+
+      it('should serialize JSON on update and deserialize on read', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          metadata: { type: 'json' }
+        }, testDb);
+
+        await Schema.createRecord('items', { name: 'Widget', metadata: { version: 1 } }, testDb);
+
+        const updated = { version: 2, flags: ['new'] };
+        const result = await Schema.updateRecord('items', { name: 'Widget' }, { metadata: updated }, testDb);
+
+        expect(result.after.metadata).toEqual(updated);
+
+        const results = await Schema.getRecord('items', { name: 'Widget' }, testDb);
+        expect(results[0].metadata).toEqual(updated);
+      });
+
+      it('should handle null values for JSON fields', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          metadata: { type: 'json' }
+        }, testDb);
+
+        const record = await Schema.createRecord('items', { name: 'Widget', metadata: null }, testDb);
+        expect(record.metadata).toBeNull();
+
+        const results = await Schema.getRecord('items', { name: 'Widget' }, testDb);
+        expect(results[0].metadata).toBeNull();
+      });
+
+      it('should handle nested objects in JSON fields', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          metadata: { type: 'json' }
+        }, testDb);
+
+        const nested = {
+          level1: {
+            level2: {
+              level3: { value: 'deep' }
+            }
+          }
+        };
+        const record = await Schema.createRecord('items', { name: 'Widget', metadata: nested }, testDb);
+        expect(record.metadata).toEqual(nested);
+      });
+    });
   });
 });

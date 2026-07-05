@@ -201,7 +201,7 @@ Schemas are plain JSON objects mapping field names to field definitions. Each fi
 | `integer` | number (integer) | INTEGER |
 | `float` | number (float) | REAL |
 | `boolean` | boolean | INTEGER |
-| `json` | string (serialized) | TEXT |
+| `json` | object or array | TEXT |
 | `datetime` | Date | TEXT |
 | `time` | string | TEXT |
 
@@ -214,6 +214,34 @@ Schemas are plain JSON objects mapping field names to field definitions. Each fi
 | `unique` | boolean | Column values must be unique |
 | `primary` | boolean | Column is a primary key |
 | `notnull` | boolean | Column cannot be `NULL` |
+
+### JSON Type Fields
+
+The `json` field type lets you store arbitrary JavaScript objects and arrays in a SQLite `TEXT` column. The API handles serialization and deserialization automatically — you always work with native objects and arrays, never serialized strings.
+
+**On write** (`POST` / `PUT` / `PATCH`), send the field as a plain object or array. The API serializes it with `JSON.stringify()` before storing it in SQLite.
+
+**On read** (`GET`), the stored string is parsed with `JSON.parse()` and returned as a native object or array.
+
+```
+POST /api/record/users
+{
+  "name": "Alice",
+  "settings": { "theme": "dark", "notifications": true },
+  "tags": ["admin", "beta-tester"]
+}
+```
+
+```json
+// GET /api/record/users?name=Alice
+{
+  "name": "Alice",
+  "settings": { "theme": "dark", "notifications": true },
+  "tags": ["admin", "beta-tester"]
+}
+```
+
+The same behavior applies when updating a record via `PUT` — send the object or array directly in the request body.
 
 ### Schema Inference
 
@@ -448,7 +476,7 @@ The Schema module employs several defenses against SQL injection and parameter-b
 
 ## Testing
 
-The test suite uses **Vitest** with **Supertest** for HTTP integration tests. It covers 137 tests across 5 files:
+The test suite uses **Vitest** with **Supertest** for HTTP integration tests. It covers 146 tests across 5 files:
 
 ```bash
 # Run all tests once (includes coverage report)
@@ -466,7 +494,7 @@ Tests are configured via `vitest.config.js` with a 10-second timeout, V8-based c
 |------|-------|-------|
 | `tests/constants.test.js` | 10 | Constants and SchemaTypes mappings |
 | `tests/jsonconfig.test.js` | 12 | Config file reading, JSON parsing, error handling, deep merge |
-| `tests/schema.test.js` | 76 | Type conversion, column SQL generation, schema validation, model/field name validation, object-to-schema inference, database schema CRUD, record CRUD operations |
+| `tests/schema.test.js` | 81 | Type conversion, column SQL generation, schema validation, model/field name validation, object-to-schema inference, database schema CRUD, record CRUD operations, JSON field serialization/deserialization |
 | `tests/database.test.js` | 12 | Connection lifecycle, table listing, SQL execution, prepared statements |
 | `tests/webserver.test.js` | 32 | Full HTTP API — schema CRUD, model listing, table listing, record CRUD with query parameters, basic auth enforcement |
 
@@ -489,4 +517,4 @@ The UI communicates with the backend entirely through the REST API endpoints des
 - **`node:sqlite` is experimental** — Requires Node.js >= 24 and may emit runtime warnings.
 - **No migration system** — Schema updates replace the stored definition but do not alter existing table columns.
 - **Single database file** — No multi-database or connection pooling support.
-- **Type coercion** — Boolean and JSON fields are coerced to and from SQLite-compatible types on read and write, but other conversions (e.g., string-to-integer) are not performed.
+- **Type coercion** — Boolean fields are stored as `0`/`1` in SQLite and coerced to `true`/`false` on read. JSON fields are serialized (`JSON.stringify`) on write and deserialized (`JSON.parse`) on read. Other conversions (e.g., string-to-integer) are not performed.
