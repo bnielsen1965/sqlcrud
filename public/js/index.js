@@ -525,7 +525,13 @@ async function loadRecords() {
         td.style.padding = '8px';
         td.style.border = '1px solid #ddd';
         td.style.cursor = 'pointer';
-        td.textContent = row[h] ?? '';
+        const fieldType = recordsSchema && recordsSchema[h] ? recordsSchema[h].type : 'string';
+        const cellValue = row[h];
+        if (fieldType === 'json' && cellValue !== null && cellValue !== undefined) {
+          td.textContent = JSON.stringify(cellValue);
+        } else {
+          td.textContent = cellValue ?? '';
+        }
         const clickHandler = function () {
           editCell(td, selectedModel, h, td.textContent ?? '');
         };
