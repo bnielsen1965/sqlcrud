@@ -521,6 +521,23 @@ describe('Schema', () => {
         expect(results[0].age).toBe(35);
       });
 
+      it('should update a record when a field is in both WHERE and SET clauses', async () => {
+        await Schema.createSchema('users', {
+          name: { type: 'string' },
+          status: { type: 'string' }
+        }, testDb);
+
+        await Schema.createRecord('users', { name: 'John', status: 'active' }, testDb);
+
+        // Update status from 'active' to 'inactive' using status as the WHERE field
+        const result = await Schema.updateRecord('users', { status: 'active' }, { status: 'inactive' }, testDb);
+        expect(result.before.status).toBe('active');
+        expect(result.after.status).toBe('inactive');
+
+        const records = await Schema.getRecord('users', { name: 'John' }, testDb);
+        expect(records[0].status).toBe('inactive');
+      });
+
       it('should throw when update matches no record', async () => {
         await Schema.createSchema('users', {
           name: { type: 'string' },
