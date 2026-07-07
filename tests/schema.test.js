@@ -654,6 +654,204 @@ describe('Schema', () => {
       });
     });
 
+    describe('serializeValue', () => {
+      it('should serialize boolean true to 1', () => {
+        const schema = { active: { type: 'boolean' } };
+        expect(Schema.serializeValue('active', true, schema)).toBe(1);
+      });
+
+      it('should serialize boolean false to 0', () => {
+        const schema = { active: { type: 'boolean' } };
+        expect(Schema.serializeValue('active', false, schema)).toBe(0);
+      });
+
+      it('should serialize truthy non-boolean values to 1', () => {
+        const schema = { active: { type: 'boolean' } };
+        expect(Schema.serializeValue('active', 'true', schema)).toBe(1);
+        expect(Schema.serializeValue('active', 1, schema)).toBe(1);
+      });
+
+      it('should pass through null and undefined', () => {
+        const schema = { active: { type: 'boolean' } };
+        expect(Schema.serializeValue('active', null, schema)).toBeNull();
+        expect(Schema.serializeValue('active', undefined, schema)).toBeUndefined();
+      });
+
+      it('should pass through non-boolean types unchanged', () => {
+        const schema = { name: { type: 'string' }, count: { type: 'integer' } };
+        expect(Schema.serializeValue('name', 'hello', schema)).toBe('hello');
+        expect(Schema.serializeValue('count', 42, schema)).toBe(42);
+      });
+
+      it('should pass through unknown fields unchanged', () => {
+        const schema = { name: { type: 'string' } };
+        expect(Schema.serializeValue('unknown_field', true, schema)).toBe(true);
+      });
+    });
+
+    describe('coerceValue', () => {
+      it('should coerce 1 to true for boolean fields', () => {
+        const schema = { active: { type: 'boolean' } };
+        expect(Schema.coerceValue('active', 1, schema)).toBe(true);
+      });
+
+      it('should coerce 0 to false for boolean fields', () => {
+        const schema = { active: { type: 'boolean' } };
+        expect(Schema.coerceValue('active', 0, schema)).toBe(false);
+      });
+
+      it('should coerce string "1" to true for boolean fields', () => {
+        const schema = { active: { type: 'boolean' } };
+        expect(Schema.coerceValue('active', '1', schema)).toBe(true);
+      });
+
+      it('should pass through null and undefined', () => {
+        const schema = { active: { type: 'boolean' } };
+        expect(Schema.coerceValue('active', null, schema)).toBeNull();
+        expect(Schema.coerceValue('active', undefined, schema)).toBeUndefined();
+      });
+
+      it('should parse JSON string values for json fields', () => {
+        const schema = { data: { type: 'json' } };
+        expect(Schema.coerceValue('data', '{"a":1}', schema)).toEqual({ a: 1 });
+        expect(Schema.coerceValue('data', '[1,2]', schema)).toEqual([1, 2]);
+      });
+
+      it('should return non-parseable JSON values as-is', () => {
+        const schema = { data: { type: 'json' } };
+        expect(Schema.coerceValue('data', 'not-json', schema)).toBe('not-json');
+      });
+    });
+
+    describe('boolean type field serialization and deserialization', () => {
+      beforeEach(() => {
+        Schema.init(testDb);
+      });
+
+      it('should store boolean true as 1 and deserialize back to true', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          active: { type: 'boolean' }
+        }, testDb);
+
+        const record = await Schema.createRecord('items', { name: 'Widget', active: true }, testDb);
+        expect(record.active).toBe(true);
+
+        const results = await Schema.getRecord('items', { name: 'Widget' }, testDb);
+        expect(results.length).toBe(1);
+        expect(results[0].active).toBe(true);
+      });
+
+      it('should store boolean false as 0 and deserialize back to false', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          active: { type: 'boolean' }
+        }, testDb);
+
+        const record = await Schema.createRecord('items', { name: 'Widget', active: false }, testDb);
+        expect(record.active).toBe(false);
+
+        const results = await Schema.getRecord('items', { name: 'Widget' }, testDb);
+        expect(results.length).toBe(1);
+        expect(results[0].active).toBe(false);
+      });
+
+      it('should update a boolean field from true to false', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          active: { type: 'boolean' }
+        }, testDb);
+
+        await Schema.createRecord('items', { name: 'Widget', active: true }, testDb);
+
+        const result = await Schema.updateRecord('items', { name: 'Widget' }, { active: false }, testDb);
+        expect(result.before.active).toBe(true);
+        expect(result.after.active).toBe(false);
+
+        const records = await Schema.getRecord('items', { name: 'Widget' }, testDb);
+        expect(records[0].active).toBe(false);
+      });
+
+      it('should update a boolean field from false to true', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          active: { type: 'boolean' }
+        }, testDb);
+
+        await Schema.createRecord('items', { name: 'Widget', active: false }, testDb);
+
+        const result = await Schema.updateRecord('items', { name: 'Widget' }, { active: true }, testDb);
+        expect(result.before.active).toBe(false);
+        expect(result.after.active).toBe(true);
+      });
+
+      it('should query records by boolean field value', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          active: { type: 'boolean' }
+        }, testDb);
+
+        await Schema.createRecord('items', { name: 'ActiveWidget', active: true }, testDb);
+        await Schema.createRecord('items', { name: 'InactiveWidget', active: false }, testDb);
+
+        const activeResults = await Schema.getRecord('items', { active: true }, testDb);
+        expect(activeResults.length).toBe(1);
+        expect(activeResults[0].name).toBe('ActiveWidget');
+
+        const inactiveResults = await Schema.getRecord('items', { active: false }, testDb);
+        expect(inactiveResults.length).toBe(1);
+        expect(inactiveResults[0].name).toBe('InactiveWidget');
+      });
+
+      it('should use boolean field in update WHERE clause', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          active: { type: 'boolean' },
+          status: { type: 'string' }
+        }, testDb);
+
+        await Schema.createRecord('items', { name: 'Widget', active: true, status: 'pending' }, testDb);
+        await Schema.createRecord('items', { name: 'Widget2', active: false, status: 'pending' }, testDb);
+
+        const result = await Schema.updateRecord('items', { active: true }, { status: 'done' }, testDb);
+        expect(result.before.name).toBe('Widget');
+        expect(result.after.status).toBe('done');
+
+        // Verify the inactive record was not affected
+        const inactiveRecords = await Schema.getRecord('items', { active: false }, testDb);
+        expect(inactiveRecords[0].status).toBe('pending');
+      });
+
+      it('should delete records matching boolean field criteria', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          active: { type: 'boolean' }
+        }, testDb);
+
+        await Schema.createRecord('items', { name: 'ActiveWidget', active: true }, testDb);
+        await Schema.createRecord('items', { name: 'InactiveWidget', active: false }, testDb);
+
+        await Schema.deleteRecord('items', { active: false }, testDb);
+
+        const remaining = await Schema.getRecord('items', {}, testDb);
+        expect(remaining.length).toBe(1);
+        expect(remaining[0].name).toBe('ActiveWidget');
+      });
+
+      it('should handle null values for boolean fields', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          active: { type: 'boolean' }
+        }, testDb);
+
+        const record = await Schema.createRecord('items', { name: 'Widget', active: null }, testDb);
+        expect(record.active).toBeNull();
+
+        const results = await Schema.getRecord('items', { name: 'Widget' }, testDb);
+        expect(results[0].active).toBeNull();
+      });
+    });
+
     describe('JSON type field serialization and deserialization', () => {
       beforeEach(() => {
         Schema.init(testDb);
