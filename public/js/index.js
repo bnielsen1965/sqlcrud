@@ -1,4 +1,5 @@
 const modelSelect = document.getElementById('modelSelect');
+const modelInput = document.getElementById('modelInput');
 const loadSchemaBtn = document.getElementById('loadSchemaBtn');
 const saveSchemaBtn = document.getElementById('saveSchemaBtn');
 const deleteSchemaBtn = document.getElementById('deleteSchemaBtn');
@@ -125,13 +126,20 @@ function initAceEditor() {
   aceEditor.setValue('{}', 1);
 }
 
-// Fetch models from the database and populate autocomplete suggestions
+// Fetch models from the database and populate dropdowns
 async function loadModels() {
   try {
     const response = await authFetch('/api/models');
     const models = await response.json();
 
-    document.getElementById('modelList').replaceChildren();
+    // Schema tab: select with ability to type new names
+    modelSelect.innerHTML = '<option value="">Select a model...</option><option value="__other__">Other (type below)</option>';
+    models.forEach(function(model) {
+      const option = document.createElement('option');
+      option.value = model.model;
+      option.textContent = model.model;
+      modelSelect.appendChild(option);
+    });
 
     // Keep the "Select a model" placeholder as the first option in the dropdowns
     const createModelSelect = document.getElementById('createModelSelect');
@@ -141,13 +149,6 @@ async function loadModels() {
     viewModelSelect.innerHTML = '<option value="">Select a model</option>';
 
     models.forEach(function(model) {
-      const option = document.createElement('option');
-      option.value = model.model;
-
-      // Datalist options display their value; select options display their text content
-      const datalistOption = option;
-      document.getElementById('modelList').appendChild(datalistOption);
-
       const createOption = document.createElement('option');
       createOption.value = model.model;
       createOption.textContent = model.model;
@@ -160,14 +161,21 @@ async function loadModels() {
     });
   } catch (error) {
     console.error('Error loading models:', error);
-    modelSelect.setAttribute('placeholder', 'Error loading models');
-    document.getElementById('createModelSelect').setAttribute('placeholder', 'Error loading models');
+    modelSelect.innerHTML = '<option>Error loading models</option>';
   }
+}
+
+// Get the current model name from either the select or the custom input
+function getCurrentModelName() {
+  if (modelSelect.value === '__other__') {
+    return modelInput.value.trim();
+  }
+  return modelSelect.value.trim();
 }
 
 // Load schema for selected model
 async function loadSchema() {
-  const selectedModel = modelSelect.value.trim();
+  const selectedModel = getCurrentModelName();
 
   if (!selectedModel) {
     aceEditor.setValue('Please enter or select a model name.', 1);
@@ -198,7 +206,7 @@ async function loadSchema() {
 
 // Save schema to database
 async function saveSchema() {
-  const model = modelSelect.value.trim();
+  const model = getCurrentModelName();
   const schema = aceEditor.getValue();
 
   if (!model) {
@@ -269,7 +277,7 @@ async function saveSchema() {
 }
 
 async function deleteSchema() {
-  const model = modelSelect.value.trim();
+  const model = getCurrentModelName();
   const schema = aceEditor.getValue();
 
   if (!model) {
@@ -304,6 +312,9 @@ async function deleteSchema() {
 // Cancel: clear model and editor
 function cancel() {
   modelSelect.value = '';
+  modelSelect.style.display = 'block';
+  modelInput.value = '';
+  modelInput.style.display = 'none';
   aceEditor.setValue('{}', 1);
 }
 
@@ -446,22 +457,36 @@ async function submitRecord() {
 // Cache for schema so we know field types / primary keys when editing cells
 let recordsSchema = null;
 
+// Pagination state
+let currentPage = 1;
+const recordsPerPage = 25;
+
 // Load records for selected model
-async function loadRecords() {
+async function loadRecords(page) {
   const selectedModel = viewModelSelect.value.trim();
   const recordsHead = document.getElementById('recordsHead');
   const recordsBody = document.getElementById('recordsBody');
   const recordsMessage = document.getElementById('recordsMessage');
+  const paginationContainer = document.getElementById('paginationContainer');
 
   if (!selectedModel) {
     alert('Please select a model.');
     return;
   }
 
+  // Update current page if provided
+  if (page !== undefined) {
+    currentPage = page;
+  }
+
   try {
-    // Fetch records and schema in parallel
-    const [recordsResp, schemaResp] = await Promise.all([
-      authFetch(`/api/record/${encodeURIComponent(selectedModel)}`),
+    // Fetch records (with pagination via POST) and schema in parallel
+    const [searchResp, schemaResp] = await Promise.all([
+      authFetch(`/api/search/${encodeURIComponent(selectedModel)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ page: currentPage, limit: recordsPerPage })
+      }),
       authFetch(`/api/schema/${encodeURIComponent(selectedModel)}`).catch(() => null),
     ]);
 
@@ -472,22 +497,18 @@ async function loadRecords() {
       recordsSchema = null;
     }
 
-    if (recordsResp.status === 404) {
-      recordsHead.innerHTML = '';
-      recordsBody.innerHTML = '';
-      recordsMessage.textContent = 'No records found.';
-      recordsMessage.style.color = '#666';
-      return;
-    }
-
-    if (!recordsResp.ok) {
-      const result = await recordsResp.json();
+    if (!searchResp.ok) {
+      const result = await searchResp.json();
       recordsMessage.textContent = 'Error loading records: ' + (result.error || 'Unknown error');
       recordsMessage.style.color = 'red';
+      paginationContainer.style.display = 'none';
+      document.getElementById('paginationContainerTop').style.display = 'none';
       return;
     }
 
-    const records = await recordsResp.json();
+    const searchData = await searchResp.json();
+    const records = searchData.records || [];
+    const totalCount = searchData.totalCount || 0;
 
     // Handle empty result set
     if (!records || records.length === 0) {
@@ -495,6 +516,8 @@ async function loadRecords() {
       recordsBody.innerHTML = '';
       recordsMessage.textContent = 'No records found.';
       recordsMessage.style.color = '#666';
+      paginationContainer.style.display = 'none';
+      document.getElementById('paginationContainerTop').style.display = 'none';
       return;
     }
 
@@ -518,8 +541,9 @@ async function loadRecords() {
 
     // Build table rows — each cell is clickable for inline editing
     recordsBody.innerHTML = '';
-    records.forEach(row => {
+    records.forEach((row, index) => {
       const tr = document.createElement('tr');
+      tr.style.backgroundColor = index % 2 === 0 ? '#ffffff' : '#e8f4fd';
       headers.forEach(h => {
         const td = document.createElement('td');
         td.style.padding = '8px';
@@ -572,13 +596,37 @@ async function loadRecords() {
 
       recordsBody.appendChild(tr);
     });
-    recordsMessage.textContent = `Showing ${records.length} record(s). Click a cell to edit.`;
+
+    // Update pagination UI (top and bottom)
+    const totalPages = Math.ceil(totalCount / recordsPerPage);
+    const startRecord = (currentPage - 1) * recordsPerPage + 1;
+    const endRecord = Math.min(currentPage * recordsPerPage, totalCount);
+    const pageText = `Page ${currentPage} of ${totalPages} (${startRecord}-${endRecord} of ${totalCount} records)`;
+
+    const prevDisabled = currentPage <= 1;
+    const nextDisabled = currentPage >= totalPages;
+
+    // Bottom pagination
+    document.getElementById('pageInfo').textContent = pageText;
+    document.getElementById('prevPageBtn').disabled = prevDisabled;
+    document.getElementById('nextPageBtn').disabled = nextDisabled;
+    paginationContainer.style.display = 'flex';
+
+    // Top pagination
+    document.getElementById('pageInfoTop').textContent = pageText;
+    document.getElementById('prevPageBtnTop').disabled = prevDisabled;
+    document.getElementById('nextPageBtnTop').disabled = nextDisabled;
+    document.getElementById('paginationContainerTop').style.display = 'flex';
+
+    recordsMessage.textContent = 'Click a cell to edit.';
     recordsMessage.style.color = 'green';
 
   } catch (error) {
     console.error('Error loading records:', error);
     recordsMessage.textContent = 'Error loading records. Please try again.';
     recordsMessage.style.color = 'red';
+    document.getElementById('paginationContainer').style.display = 'none';
+    document.getElementById('paginationContainerTop').style.display = 'none';
   }
 }
 
@@ -623,9 +671,8 @@ function deleteRecord(model, row, pkFields, tr) {
       alert('Error deleting record: ' + (result.error || 'Unknown error'));
       return;
     }
-    tr.remove();
-    document.getElementById('recordsMessage').textContent = 'Record deleted.';
-    document.getElementById('recordsMessage').style.color = 'green';
+    // Reload current page to keep pagination in sync
+    loadRecords(currentPage);
   }).catch(err => {
     console.error('Error deleting record:', err);
     alert('Error deleting record. Please try again.');
@@ -653,13 +700,14 @@ function editCell(cell, model, field, value) {
 
   const editor = document.createElement('div');
   editor.style.display = 'flex';
-  editor.style.gap = '4px';
-  editor.style.alignItems = 'center';
+  editor.style.flexDirection = 'column';
+  editor.style.gap = '2px';
 
   const input = document.createElement('input');
   input.type = 'text';
   input.value = value === null ? '' : String(value);
-  input.style.flex = '1';
+  input.style.width = '100%';
+  input.style.boxSizing = 'border-box';
   input.style.padding = '4px';
 
   // Adjust input type by field schema
@@ -671,21 +719,29 @@ function editCell(cell, model, field, value) {
     input.checked = value === 'true' || value === true || value === 1;
   }
 
+  const btnRow = document.createElement('div');
+  btnRow.style.display = 'flex';
+  btnRow.style.gap = '4px';
+
   const saveBtn = document.createElement('button');
   saveBtn.textContent = '✓';
   saveBtn.title = 'Save';
   saveBtn.style.cursor = 'pointer';
-  saveBtn.style.fontSize = '14px';
+  saveBtn.style.fontSize = '11px';
+  saveBtn.style.padding = '1px 4px';
 
   const cancelBtn = document.createElement('button');
   cancelBtn.textContent = '✗';
   cancelBtn.title = 'Cancel';
   cancelBtn.style.cursor = 'pointer';
-  cancelBtn.style.fontSize = '14px';
+  cancelBtn.style.fontSize = '11px';
+  cancelBtn.style.padding = '1px 4px';
+
+  btnRow.appendChild(saveBtn);
+  btnRow.appendChild(cancelBtn);
 
   editor.appendChild(input);
-  editor.appendChild(saveBtn);
-  editor.appendChild(cancelBtn);
+  editor.appendChild(btnRow);
 
   // Capture original text BEFORE modifying the cell
   const originalText = value !== null ? String(value) : '';
@@ -791,14 +847,54 @@ function cancelRecord() {
 
 // Event listeners
 loadSchemaBtn.addEventListener('click', loadSchema);
-modelSelect.addEventListener('change', loadSchema);
+modelSelect.addEventListener('change', () => {
+  if (modelSelect.value === '__other__') {
+    modelSelect.style.display = 'none';
+    modelInput.style.display = 'block';
+    modelInput.focus();
+  } else {
+    loadSchema();
+  }
+});
+modelInput.addEventListener('blur', () => {
+  if (!modelInput.value.trim()) {
+    modelInput.style.display = 'none';
+    modelSelect.style.display = 'block';
+    modelSelect.value = '';
+  }
+});
+modelInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    loadSchema();
+  }
+});
 saveSchemaBtn.addEventListener('click', saveSchema);
 deleteSchemaBtn.addEventListener('click', deleteSchema);
 cancelBtn.addEventListener('click', cancel);
 submitRecordBtn.addEventListener('click', submitRecord);
 cancelRecordBtn.addEventListener('click', cancelRecord);
-loadRecordsBtn.addEventListener('click', loadRecords);
-viewModelSelect.addEventListener('change', loadRecords);
+loadRecordsBtn.addEventListener('click', () => loadRecords(1));
+viewModelSelect.addEventListener('change', () => {
+  currentPage = 1;
+  loadRecords(1);
+});
+document.getElementById('prevPageBtn').addEventListener('click', () => {
+  if (currentPage > 1) {
+    loadRecords(currentPage - 1);
+  }
+});
+document.getElementById('nextPageBtn').addEventListener('click', () => {
+  loadRecords(currentPage + 1);
+});
+document.getElementById('prevPageBtnTop').addEventListener('click', () => {
+  if (currentPage > 1) {
+    loadRecords(currentPage - 1);
+  }
+});
+document.getElementById('nextPageBtnTop').addEventListener('click', () => {
+  loadRecords(currentPage + 1);
+});
 
 // Initialize on page load
 initAceEditor();

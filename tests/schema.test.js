@@ -937,5 +937,230 @@ describe('Schema', () => {
         expect(record.metadata).toEqual(nested);
       });
     });
+
+    describe('searchRecords', () => {
+      beforeEach(() => {
+        Schema.init(testDb);
+      });
+
+      it('should return all records with no filter and no pagination', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          category: { type: 'string' }
+        }, testDb);
+
+        await Schema.createRecord('items', { name: 'A', category: 'x' }, testDb);
+        await Schema.createRecord('items', { name: 'B', category: 'y' }, testDb);
+        await Schema.createRecord('items', { name: 'C', category: 'x' }, testDb);
+
+        const result = Schema.searchRecords('items', {}, testDb);
+
+        expect(result.records.length).toBe(3);
+        expect(result.totalCount).toBe(3);
+        expect(result.page).toBe(1);
+      });
+
+      it('should filter records by a single field', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          category: { type: 'string' }
+        }, testDb);
+
+        await Schema.createRecord('items', { name: 'A', category: 'x' }, testDb);
+        await Schema.createRecord('items', { name: 'B', category: 'y' }, testDb);
+        await Schema.createRecord('items', { name: 'C', category: 'x' }, testDb);
+
+        const result = Schema.searchRecords('items', { category: 'x' }, testDb);
+
+        expect(result.records.length).toBe(2);
+        expect(result.totalCount).toBe(2);
+        expect(result.records.every(r => r.category === 'x')).toBe(true);
+      });
+
+      it('should filter records by multiple fields', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          category: { type: 'string' },
+          active: { type: 'boolean' }
+        }, testDb);
+
+        await Schema.createRecord('items', { name: 'A', category: 'x', active: true }, testDb);
+        await Schema.createRecord('items', { name: 'B', category: 'x', active: false }, testDb);
+        await Schema.createRecord('items', { name: 'C', category: 'y', active: true }, testDb);
+
+        const result = Schema.searchRecords('items', { category: 'x', active: true }, testDb);
+
+        expect(result.records.length).toBe(1);
+        expect(result.totalCount).toBe(1);
+        expect(result.records[0].name).toBe('A');
+      });
+
+      it('should paginate results - page 1', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' }
+        }, testDb);
+
+        for (let i = 1; i <= 10; i++) {
+          await Schema.createRecord('items', { name: `Item${i}` }, testDb);
+        }
+
+        const result = Schema.searchRecords('items', {}, testDb, { page: 1, limit: 3 });
+
+        expect(result.records.length).toBe(3);
+        expect(result.totalCount).toBe(10);
+        expect(result.page).toBe(1);
+        expect(result.limit).toBe(3);
+        expect(result.records[0].name).toBe('Item1');
+        expect(result.records[2].name).toBe('Item3');
+      });
+
+      it('should paginate results - page 2', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' }
+        }, testDb);
+
+        for (let i = 1; i <= 10; i++) {
+          await Schema.createRecord('items', { name: `Item${i}` }, testDb);
+        }
+
+        const result = Schema.searchRecords('items', {}, testDb, { page: 2, limit: 3 });
+
+        expect(result.records.length).toBe(3);
+        expect(result.totalCount).toBe(10);
+        expect(result.page).toBe(2);
+        expect(result.records[0].name).toBe('Item4');
+        expect(result.records[2].name).toBe('Item6');
+      });
+
+      it('should paginate results - last partial page', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' }
+        }, testDb);
+
+        for (let i = 1; i <= 10; i++) {
+          await Schema.createRecord('items', { name: `Item${i}` }, testDb);
+        }
+
+        const result = Schema.searchRecords('items', {}, testDb, { page: 4, limit: 3 });
+
+        expect(result.records.length).toBe(1);
+        expect(result.totalCount).toBe(10);
+        expect(result.page).toBe(4);
+        expect(result.records[0].name).toBe('Item10');
+      });
+
+      it('should return empty records for page beyond available data', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' }
+        }, testDb);
+
+        for (let i = 1; i <= 5; i++) {
+          await Schema.createRecord('items', { name: `Item${i}` }, testDb);
+        }
+
+        const result = Schema.searchRecords('items', {}, testDb, { page: 10, limit: 3 });
+
+        expect(result.records.length).toBe(0);
+        expect(result.totalCount).toBe(5);
+        expect(result.page).toBe(10);
+      });
+
+      it('should combine filter and pagination', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          category: { type: 'string' }
+        }, testDb);
+
+        for (let i = 1; i <= 8; i++) {
+          const cat = i <= 5 ? 'x' : 'y';
+          await Schema.createRecord('items', { name: `Item${i}`, category: cat }, testDb);
+        }
+
+        const result = Schema.searchRecords('items', { category: 'x' }, testDb, { page: 1, limit: 2 });
+
+        expect(result.records.length).toBe(2);
+        expect(result.totalCount).toBe(5);
+        expect(result.page).toBe(1);
+        expect(result.records.every(r => r.category === 'x')).toBe(true);
+      });
+
+      it('should not apply pagination when page or limit is invalid', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' }
+        }, testDb);
+
+        for (let i = 1; i <= 10; i++) {
+          await Schema.createRecord('items', { name: `Item${i}` }, testDb);
+        }
+
+        // Negative page
+        let result = Schema.searchRecords('items', {}, testDb, { page: -1, limit: 3 });
+        expect(result.records.length).toBe(10);
+
+        // Zero limit
+        result = Schema.searchRecords('items', {}, testDb, { page: 1, limit: 0 });
+        expect(result.records.length).toBe(10);
+
+        // NaN page
+        result = Schema.searchRecords('items', {}, testDb, { page: NaN, limit: 3 });
+        expect(result.records.length).toBe(10);
+
+        // Only page provided, no limit
+        result = Schema.searchRecords('items', {}, testDb, { page: 1 });
+        expect(result.records.length).toBe(10);
+      });
+
+      it('should return empty records and totalCount 0 when no records exist', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' }
+        }, testDb);
+
+        const result = Schema.searchRecords('items', {}, testDb, { page: 1, limit: 10 });
+
+        expect(result.records.length).toBe(0);
+        expect(result.totalCount).toBe(0);
+      });
+
+      it('should coerce boolean values in search results', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          active: { type: 'boolean' }
+        }, testDb);
+
+        await Schema.createRecord('items', { name: 'A', active: true }, testDb);
+        await Schema.createRecord('items', { name: 'B', active: false }, testDb);
+
+        const result = Schema.searchRecords('items', {}, testDb);
+
+        expect(result.records[0].active).toBe(true);
+        expect(result.records[1].active).toBe(false);
+      });
+
+      it('should coerce JSON values in search results', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' },
+          data: { type: 'json' }
+        }, testDb);
+
+        await Schema.createRecord('items', { name: 'A', data: { key: 'value' } }, testDb);
+
+        const result = Schema.searchRecords('items', {}, testDb);
+
+        expect(result.records[0].data).toEqual({ key: 'value' });
+      });
+
+      it('should reject reserved field names in filter', async () => {
+        await Schema.createSchema('items', {
+          name: { type: 'string' }
+        }, testDb);
+
+        expect(() => Schema.searchRecords('items', { model: 'bad' }, testDb)).toThrow(/reserved/);
+        expect(() => Schema.searchRecords('items', { schema: 'bad' }, testDb)).toThrow(/reserved/);
+      });
+
+      it('should reject invalid model name', async () => {
+        expect(() => Schema.searchRecords('bad-model', {}, testDb)).toThrow(/Invalid model name/);
+      });
+    });
   });
 });

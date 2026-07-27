@@ -20,8 +20,10 @@
   <div id="schemaTab" class="tab-content active">
     <div class="form-group">
       <label for="modelSelect">Model Name:</label>
-      <input type="text" id="modelSelect" list="modelList" placeholder="Enter or select a model name">
-      <datalist id="modelList"></datalist>
+      <select id="modelSelect">
+        <option value="">Select a model...</option>
+      </select>
+      <input type="text" id="modelInput" style="display: none; margin-top: 5px;" placeholder="Enter a new model name">
     </div>
 
     <div class="form-group">
@@ -104,11 +106,22 @@
       <button id="loadRecordsBtn" style="padding: 10px 20px;">Load Records</button>
     </div>
 
+    <div id="paginationContainerTop" style="margin-top: 15px; display: none; align-items: center; gap: 10px;">
+      <button id="prevPageBtnTop" style="padding: 6px 12px;">Previous</button>
+      <span id="pageInfoTop" style="font-style: italic;"></span>
+      <button id="nextPageBtnTop" style="padding: 6px 12px;">Next</button>
+    </div>
+
     <div id="recordsContainer" style="margin-top: 20px; overflow-x: auto;">
       <table id="recordsTable" style="width: 100%; border-collapse: collapse;">
         <thead id="recordsHead"></thead>
         <tbody id="recordsBody"></tbody>
       </table>
+    </div>
+    <div id="paginationContainer" style="margin-top: 15px; display: none; align-items: center; gap: 10px;">
+      <button id="prevPageBtn" style="padding: 6px 12px;">Previous</button>
+      <span id="pageInfo" style="font-style: italic;"></span>
+      <button id="nextPageBtn" style="padding: 6px 12px;">Next</button>
     </div>
     <div id="recordsMessage" style="margin-top: 10px; font-style: italic;"></div>
   </div>

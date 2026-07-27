@@ -35,6 +35,7 @@ their effectiveness and value in the development process.
 
 - **JSON Schema Definitions** — Define table structures with JSON, stored in the database.
 - **RESTful CRUD API** — Full create, read, update, and delete operations over HTTP.
+- **Search with Pagination** — POST-based search endpoint with filter and pagination support.
 - **Dynamic Table Creation** — Tables are created automatically from schema definitions.
 - **Field Validation** — Enforce `notnull`, `unique`, `primary`, and `length` constraints.
 - **Basic Authentication** — Optional HTTP Basic Auth for the API and web interface.
@@ -413,6 +414,66 @@ DELETE /api/record/users?name=John
 
 ---
 
+### Search
+
+#### `POST /api/search/:model`
+
+Search records with filtering and pagination. Unlike `GET /api/record/:model`, this endpoint accepts a JSON body, so filter field names never conflict with pagination parameters.
+
+**Request Body:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `filter` | object | Field match criteria (same semantics as GET query params) |
+| `page` | number | Page number (1-based) |
+| `limit` | number | Maximum records per page |
+
+All fields are optional. Omitting `page` and `limit` returns all matching records without pagination.
+
+**Response:** `200 OK` — Object with paginated results.
+
+```json
+{
+  "records": [
+    { "name": "Alice", "age": 30 },
+    { "name": "Bob", "age": 25 }
+  ],
+  "totalCount": 42,
+  "page": 1,
+  "limit": 10
+}
+```
+
+- `records` — Array of matching record objects for the requested page.
+- `totalCount` — Total number of records matching the filter (ignoring pagination).
+- `page` — The page number returned.
+- `limit` — The limit used for pagination.
+
+**Examples:**
+
+Search with pagination (no filter):
+
+```
+POST /api/search/users
+{ "page": 1, "limit": 10 }
+```
+
+Search with filter:
+
+```
+POST /api/search/users
+{ "filter": { "active": true } }
+```
+
+Search with filter and pagination:
+
+```
+POST /api/search/users
+{ "filter": { "active": true }, "page": 2, "limit": 25 }
+```
+
+---
+
 ## Architecture
 
 ### Project Structure
@@ -476,7 +537,7 @@ The Schema module employs several defenses against SQL injection and parameter-b
 
 ## Testing
 
-The test suite uses **Vitest** with **Supertest** for HTTP integration tests. It covers 146 tests across 5 files:
+The test suite uses **Vitest** with **Supertest** for HTTP integration tests. It covers 204 tests across 5 files:
 
 ```bash
 # Run all tests once (includes coverage report)
@@ -494,9 +555,9 @@ Tests are configured via `vitest.config.js` with a 10-second timeout, V8-based c
 |------|-------|-------|
 | `tests/constants.test.js` | 10 | Constants and SchemaTypes mappings |
 | `tests/jsonconfig.test.js` | 12 | Config file reading, JSON parsing, error handling, deep merge |
-| `tests/schema.test.js` | 81 | Type conversion, column SQL generation, schema validation, model/field name validation, object-to-schema inference, database schema CRUD, record CRUD operations, JSON field serialization/deserialization |
+| `tests/schema.test.js` | 111 | Type conversion, column SQL generation, schema validation, model/field name validation, object-to-schema inference, database schema CRUD, record CRUD operations, JSON field serialization/deserialization, searchRecords with pagination |
 | `tests/database.test.js` | 12 | Connection lifecycle, table listing, SQL execution, prepared statements |
-| `tests/webserver.test.js` | 32 | Full HTTP API — schema CRUD, model listing, table listing, record CRUD with query parameters, basic auth enforcement |
+| `tests/webserver.test.js` | 59 | Full HTTP API — schema CRUD, model listing, table listing, record CRUD with query parameters, search endpoint with pagination, error handling, basic auth enforcement |
 
 ---
 

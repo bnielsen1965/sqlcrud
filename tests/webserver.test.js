@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import Express from 'express';
 import BodyParser from 'body-parser';
@@ -448,6 +448,283 @@ describe('WebServer / CRUDAPI', () => {
         .send({ setting_value: 'light' });
       expect(update.status).toBe(200);
       expect(update.body.after.setting_value).toBe('light');
+    });
+  });
+
+  describe('error handling coverage', () => {
+    describe('GET /api/schema/:model error branch', () => {
+      it('should return 500 for invalid model name', async () => {
+        const response = await request(app).get('/api/schema/bad-model');
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('Invalid model name');
+      });
+    });
+
+    describe('POST /api/schema/:model error branch', () => {
+      it('should return 500 for invalid schema', async () => {
+        const response = await request(app)
+          .post('/api/schema/users')
+          .send({ name: 'not-an-object' });
+        expect(response.status).toBe(500);
+        expect(response.body.error).toBeDefined();
+      });
+
+      it('should return 500 for schema missing type', async () => {
+        const response = await request(app)
+          .post('/api/schema/users')
+          .send({ name: {} });
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('type');
+      });
+    });
+
+    describe('DELETE /api/schema/:model error branch', () => {
+      it('should return 500 for invalid model name', async () => {
+        const response = await request(app).delete('/api/schema/bad-model');
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('Invalid model name');
+      });
+    });
+
+    describe('GET /api/record/:model error branch', () => {
+      beforeEach(async () => {
+        await request(app).post('/api/schema/users').send({
+          name: { type: 'string' }
+        });
+      });
+
+      it('should return 500 for invalid model name', async () => {
+        const response = await request(app).get('/api/record/bad-model');
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('Invalid model name');
+      });
+
+      it('should return 500 when using reserved field name in query', async () => {
+        const response = await request(app)
+          .get('/api/record/users')
+          .query({ model: 'bad' });
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('reserved');
+      });
+    });
+
+    describe('GET /api/record/:model/count', () => {
+      beforeEach(async () => {
+        await request(app).post('/api/schema/users').send({
+          name: { type: 'string' }
+        });
+      });
+
+      it('should return count of all records', async () => {
+        await request(app).post('/api/record/users').send({ name: 'A' });
+        await request(app).post('/api/record/users').send({ name: 'B' });
+        await request(app).post('/api/record/users').send({ name: 'C' });
+
+        const response = await request(app).get('/api/record/users/count');
+        expect(response.status).toBe(200);
+        expect(response.body.count).toBe(3);
+      });
+
+      it('should return count filtered by query params', async () => {
+        await request(app).post('/api/record/users').send({ name: 'John' });
+        await request(app).post('/api/record/users').send({ name: 'John' });
+        await request(app).post('/api/record/users').send({ name: 'Jane' });
+
+        const response = await request(app)
+          .get('/api/record/users/count')
+          .query({ name: 'John' });
+        expect(response.status).toBe(200);
+        expect(response.body.count).toBe(2);
+      });
+
+      it('should return 0 when no records match', async () => {
+        const response = await request(app)
+          .get('/api/record/users/count')
+          .query({ name: 'Nobody' });
+        expect(response.status).toBe(200);
+        expect(response.body.count).toBe(0);
+      });
+
+      it('should return 500 for invalid model name', async () => {
+        const response = await request(app).get('/api/record/bad-model/count');
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('Invalid model name');
+      });
+
+      it('should return 500 when using reserved field name in query', async () => {
+        const response = await request(app)
+          .get('/api/record/users/count')
+          .query({ schema: 'bad' });
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('reserved');
+      });
+    });
+
+    describe('PUT /api/record/:model error branch', () => {
+      beforeEach(async () => {
+        await request(app).post('/api/schema/users').send({
+          name: { type: 'string' }
+        });
+      });
+
+      it('should return 500 for invalid model name', async () => {
+        const response = await request(app)
+          .put('/api/record/bad-model?name=John')
+          .send({ name: 'Jane' });
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('Invalid model name');
+      });
+    });
+
+    describe('DELETE /api/record/:model error branch', () => {
+      beforeEach(async () => {
+        await request(app).post('/api/schema/users').send({
+          name: { type: 'string' }
+        });
+      });
+
+      it('should return 500 for invalid model name', async () => {
+        const response = await request(app).delete('/api/record/bad-model');
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('Invalid model name');
+      });
+    });
+
+    describe('POST /api/search/:model', () => {
+      beforeEach(async () => {
+        await request(app).post('/api/schema/items').send({
+          name: { type: 'string' },
+          category: { type: 'string' },
+          active: { type: 'boolean' }
+        });
+      });
+
+      it('should return records with pagination', async () => {
+        for (let i = 1; i <= 10; i++) {
+          await request(app).post('/api/record/items').send({ name: `Item${i}`, category: 'x' });
+        }
+
+        const response = await request(app)
+          .post('/api/search/items')
+          .send({ page: 1, limit: 3 });
+
+        expect(response.status).toBe(200);
+        expect(response.body.records.length).toBe(3);
+        expect(response.body.totalCount).toBe(10);
+        expect(response.body.page).toBe(1);
+        expect(response.body.limit).toBe(3);
+      });
+
+      it('should return second page of results', async () => {
+        for (let i = 1; i <= 10; i++) {
+          await request(app).post('/api/record/items').send({ name: `Item${i}`, category: 'x' });
+        }
+
+        const response = await request(app)
+          .post('/api/search/items')
+          .send({ page: 2, limit: 3 });
+
+        expect(response.status).toBe(200);
+        expect(response.body.records.length).toBe(3);
+        expect(response.body.totalCount).toBe(10);
+        expect(response.body.page).toBe(2);
+      });
+
+      it('should filter records', async () => {
+        await request(app).post('/api/record/items').send({ name: 'A', category: 'x' });
+        await request(app).post('/api/record/items').send({ name: 'B', category: 'y' });
+        await request(app).post('/api/record/items').send({ name: 'C', category: 'x' });
+
+        const response = await request(app)
+          .post('/api/search/items')
+          .send({ filter: { category: 'x' } });
+
+        expect(response.status).toBe(200);
+        expect(response.body.records.length).toBe(2);
+        expect(response.body.totalCount).toBe(2);
+      });
+
+      it('should filter and paginate', async () => {
+        for (let i = 1; i <= 8; i++) {
+          const cat = i <= 5 ? 'x' : 'y';
+          await request(app).post('/api/record/items').send({ name: `Item${i}`, category: cat });
+        }
+
+        const response = await request(app)
+          .post('/api/search/items')
+          .send({ filter: { category: 'x' }, page: 1, limit: 2 });
+
+        expect(response.status).toBe(200);
+        expect(response.body.records.length).toBe(2);
+        expect(response.body.totalCount).toBe(5);
+      });
+
+      it('should return empty records for page beyond data', async () => {
+        await request(app).post('/api/record/items').send({ name: 'A', category: 'x' });
+
+        const response = await request(app)
+          .post('/api/search/items')
+          .send({ page: 10, limit: 3 });
+
+        expect(response.status).toBe(200);
+        expect(response.body.records.length).toBe(0);
+        expect(response.body.totalCount).toBe(1);
+      });
+
+      it('should return 500 for invalid model name', async () => {
+        const response = await request(app)
+          .post('/api/search/bad-model')
+          .send({ page: 1, limit: 10 });
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('Invalid model name');
+      });
+
+      it('should return 500 when using reserved field name in filter', async () => {
+        const response = await request(app)
+          .post('/api/search/items')
+          .send({ filter: { model: 'bad' } });
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('reserved');
+      });
+
+      it('should coerce boolean values in results', async () => {
+        await request(app).post('/api/record/items').send({ name: 'A', active: true });
+        await request(app).post('/api/record/items').send({ name: 'B', active: false });
+
+        const response = await request(app)
+          .post('/api/search/items')
+          .send({});
+
+        expect(response.status).toBe(200);
+        expect(response.body.records[0].active).toBe(true);
+        expect(response.body.records[1].active).toBe(false);
+      });
+
+      it('should handle request with no body', async () => {
+        await request(app).post('/api/record/items').send({ name: 'A' });
+
+        const response = await request(app)
+          .post('/api/search/items')
+          .send();
+
+        expect(response.status).toBe(200);
+        expect(response.body.records.length).toBe(1);
+        expect(response.body.totalCount).toBe(1);
+      });
+    });
+
+    describe('GET /api/models error branch', () => {
+      it('should return 500 when Schema.getModels throws', async () => {
+        vi.spyOn(Schema, 'getModels').mockImplementation(() => {
+          throw new Error('simulated failure');
+        });
+
+        const response = await request(app).get('/api/models');
+        expect(response.status).toBe(500);
+        expect(response.body.error).toBe('simulated failure');
+
+        vi.restoreAllMocks();
+      });
     });
   });
 });
