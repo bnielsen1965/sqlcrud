@@ -472,6 +472,44 @@ POST /api/search/users
 { "filter": { "active": true }, "page": 2, "limit": 25 }
 ```
 
+### Filter Operators
+
+The `filter` object supports MongoDB-style operators for flexible querying. Plain values are treated as exact match (`$eq`).
+
+| Operator | SQL | Description | Example |
+|----------|-----|-------------|---------|
+| `$eq` | `=` | Equal to | `"age": { "$eq": 30 }` |
+| `$ne` | `!=` | Not equal to | `"status": { "$ne": "inactive" }` |
+| `$gt` | `>` | Greater than | `"age": { "$gt": 18 }` |
+| `$gte` | `>=` | Greater than or equal | `"price": { "$gte": 10 }` |
+| `$lt` | `<` | Less than | `"score": { "$lt": 50 }` |
+| `$lte` | `<=` | Less than or equal | `"price": { "$lte": 100 }` |
+| `$between` | `BETWEEN` | Inclusive range | `"price": { "$between": [10, 100] }` |
+| `$like` | `LIKE` | Pattern match | `"name": { "$like": "%widget%" }` |
+
+Multiple operators on the same field are combined with `AND`. Different fields are also combined with `AND`.
+
+**Range search:**
+
+```
+POST /api/search/products
+{ "filter": { "price": { "$gte": 10, "$lte": 100 } } }
+```
+
+**Combined operators and exact match:**
+
+```
+POST /api/search/products
+{ "filter": { "price": { "$gte": 10 }, "status": "active", "rating": { "$gt": 4 } } }
+```
+
+**Between operator:**
+
+```
+POST /api/search/orders
+{ "filter": { "created_at": { "$between": ["2026-01-01", "2026-07-01"] } } }
+```
+
 ---
 
 ## Architecture

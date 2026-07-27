@@ -1161,6 +1161,104 @@ describe('Schema', () => {
       it('should reject invalid model name', async () => {
         expect(() => Schema.searchRecords('bad-model', {}, testDb)).toThrow(/Invalid model name/);
       });
+
+      describe('filter operators', () => {
+        beforeEach(async () => {
+          await Schema.createSchema('products', {
+            name: { type: 'string' },
+            price: { type: 'float' },
+            quantity: { type: 'integer' },
+            rating: { type: 'float' },
+            status: { type: 'string' }
+          }, testDb);
+
+          await Schema.createRecord('products', { name: 'Cheap', price: 5.0, quantity: 10, rating: 3.0, status: 'active' }, testDb);
+          await Schema.createRecord('products', { name: 'Mid', price: 25.0, quantity: 5, rating: 4.0, status: 'active' }, testDb);
+          await Schema.createRecord('products', { name: 'Expensive', price: 100.0, quantity: 1, rating: 5.0, status: 'inactive' }, testDb);
+          await Schema.createRecord('products', { name: 'Budget', price: 10.0, quantity: 20, rating: 2.5, status: 'active' }, testDb);
+        });
+
+        it('should support $eq operator', async () => {
+          const result = Schema.searchRecords('products', { status: { $eq: 'active' } }, testDb);
+          expect(result.records.length).toBe(3);
+          expect(result.records.map(r => r.name)).toEqual(['Cheap', 'Mid', 'Budget']);
+        });
+
+        it('should support $ne operator', async () => {
+          const result = Schema.searchRecords('products', { status: { $ne: 'active' } }, testDb);
+          expect(result.records.length).toBe(1);
+          expect(result.records[0].name).toBe('Expensive');
+        });
+
+        it('should support $gt operator', async () => {
+          const result = Schema.searchRecords('products', { quantity: { $gt: 5 } }, testDb);
+          expect(result.records.length).toBe(2);
+          expect(result.records.map(r => r.name)).toEqual(['Cheap', 'Budget']);
+        });
+
+        it('should support $gte operator', async () => {
+          const result = Schema.searchRecords('products', { quantity: { $gte: 5 } }, testDb);
+          expect(result.records.length).toBe(3);
+          expect(result.records.map(r => r.name)).toEqual(['Cheap', 'Mid', 'Budget']);
+        });
+
+        it('should support $lt operator', async () => {
+          const result = Schema.searchRecords('products', { rating: { $lt: 4 } }, testDb);
+          expect(result.records.length).toBe(2);
+          expect(result.records.map(r => r.name)).toEqual(['Cheap', 'Budget']);
+        });
+
+        it('should support $lte operator', async () => {
+          const result = Schema.searchRecords('products', { rating: { $lte: 4 } }, testDb);
+          expect(result.records.length).toBe(3);
+          expect(result.records.map(r => r.name)).toEqual(['Cheap', 'Mid', 'Budget']);
+        });
+
+        it('should support $between operator', async () => {
+          const result = Schema.searchRecords('products', { price: { $between: [10, 50] } }, testDb);
+          expect(result.records.length).toBe(2);
+          expect(result.records.map(r => r.name)).toEqual(['Mid', 'Budget']);
+        });
+
+        it('should support $like operator', async () => {
+          const result = Schema.searchRecords('products', { name: { $like: '%eap%' } }, testDb);
+          expect(result.records.length).toBe(1);
+          expect(result.records[0].name).toBe('Cheap');
+        });
+
+        it('should support multiple operators on the same field', async () => {
+          const result = Schema.searchRecords('products', { price: { $gte: 10, $lte: 50 } }, testDb);
+          expect(result.records.length).toBe(2);
+          expect(result.records.map(r => r.name)).toEqual(['Mid', 'Budget']);
+        });
+
+        it('should combine operators across fields with AND', async () => {
+          const result = Schema.searchRecords('products', { price: { $gte: 10 }, rating: { $gte: 4 } }, testDb);
+          expect(result.records.length).toBe(2);
+          expect(result.records.map(r => r.name)).toEqual(['Mid', 'Expensive']);
+        });
+
+        it('should combine operators with plain exact match', async () => {
+          const result = Schema.searchRecords('products', { status: 'active', price: { $gte: 10 } }, testDb);
+          expect(result.records.length).toBe(2);
+          expect(result.records.map(r => r.name)).toEqual(['Mid', 'Budget']);
+        });
+
+        it('should throw error for invalid $between value', async () => {
+          expect(() => Schema.searchRecords('products', { price: { $between: [10] } }, testDb))
+            .toThrow(/requires an array of exactly two values/);
+          expect(() => Schema.searchRecords('products', { price: { $between: 10 } }, testDb))
+            .toThrow(/requires an array of exactly two values/);
+        });
+
+        it('should work with operators and pagination', async () => {
+          const result = Schema.searchRecords('products', { price: { $gte: 5 } }, testDb, { page: 1, limit: 2 });
+          expect(result.records.length).toBe(2);
+          expect(result.totalCount).toBe(4);
+          expect(result.page).toBe(1);
+          expect(result.limit).toBe(2);
+        });
+      });
     });
   });
 });
