@@ -11,13 +11,61 @@
 
   <!-- Tab Navigation -->
   <div class="tabs">
-    <button class="tab-button active" onclick="switchTab(event, 'schemaTab')">Schema</button>
+    <button class="tab-button active" onclick="switchTab(event, 'statusTab')">Status</button>
+    <button class="tab-button" onclick="switchTab(event, 'schemaTab')">Schema</button>
     <button class="tab-button" onclick="switchTab(event, 'createTab')">Create Record</button>
     <button class="tab-button" onclick="switchTab(event, 'viewRecordsTab')">View Records</button>
   </div>
 
+  <!-- Status Tab -->
+  <div id="statusTab" class="tab-content active">
+    <h2>Transactions Per Minute</h2>
+    <div id="statusMinute" style="margin-bottom: 15px; font-style: italic; color: #666;">Rolling 1-minute window</div>
+
+    <div style="margin-bottom: 20px;">
+      <h3>Total: <span id="statusTotal">0</span></h3>
+    </div>
+
+    <div style="margin-bottom: 25px;">
+      <h3>Trend (last 30 minutes)</h3>
+      <div style="position: relative; height: 200px; width: 100%;">
+        <canvas id="statusTrendChart"></canvas>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 30px; flex-wrap: wrap;">
+      <div style="flex: 1; min-width: 300px;">
+        <h3>By Table</h3>
+        <table id="statusTablesTable" style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th style="padding: 8px; border: 1px solid #ddd; text-align: left; background: #f5f5f5;">Table</th>
+              <th style="padding: 8px; border: 1px solid #ddd; text-align: right; background: #f5f5f5;">Transactions</th>
+            </tr>
+          </thead>
+          <tbody id="statusTablesBody"></tbody>
+        </table>
+      </div>
+
+      <div style="flex: 1; min-width: 300px;">
+        <h3>By IP Address</h3>
+        <table id="statusIPsTable" style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th style="padding: 8px; border: 1px solid #ddd; text-align: left; background: #f5f5f5;">IP Address</th>
+              <th style="padding: 8px; border: 1px solid #ddd; text-align: right; background: #f5f5f5;">Transactions</th>
+            </tr>
+          </thead>
+          <tbody id="statusIPsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="statusMessage" style="margin-top: 10px; font-style: italic; color: #666;"></div>
+  </div>
+
   <!-- Schema Tab -->
-  <div id="schemaTab" class="tab-content active">
+  <div id="schemaTab" class="tab-content">
     <div class="form-group">
       <label for="modelSelect">Model Name:</label>
       <select id="modelSelect">
@@ -128,6 +176,9 @@
 
   <!-- Load ACE Editor -->
   <script src="/js/ace/ace.js"></script>
+
+  <!-- Minimal line chart library -->
+  <script src="/js/linechart.js"></script>
 
   <script src="/js/index.js"></script>
 </body>

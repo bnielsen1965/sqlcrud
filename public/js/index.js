@@ -7,7 +7,24 @@ const cancelBtn = document.getElementById('cancelBtn');
 const loadRecordsBtn = document.getElementById('loadRecordsBtn');
 const viewModelSelect = document.getElementById('viewModelSelect');
 
+// Status tab elements
+const statusMinuteEl = document.getElementById('statusMinute');
+const statusTotalEl = document.getElementById('statusTotal');
+const statusTablesBodyEl = document.getElementById('statusTablesBody');
+const statusIPsBodyEl = document.getElementById('statusIPsBody');
+const statusMessageEl = document.getElementById('statusMessage');
+
 let aceEditor;
+let statusPollInterval = null;
+
+// Trend chart state (client-side only)
+let statusTrendChart = null;
+const MAX_TREND_POINTS = 360; // 30 minutes at 5-second intervals
+const trendHistory = {
+  labels: [],       // timestamps
+  total: [],        // total TPM values
+  tables: {}        // { tableName: [tpm values] }
+};
 
 // ---- Auth helpers ----
 
@@ -101,6 +118,13 @@ function switchTab(event, tabName) {
   // Show selected tab and activate button
   document.getElementById(tabName).classList.add('active');
   event.target.classList.add('active');
+
+  // Handle status tab polling
+  if (tabName === 'statusTab') {
+    startStatusPolling();
+  } else {
+    stopStatusPolling();
+  }
 
   // If switching to create tab, load form if model is selected
   if (tabName === 'createTab' && document.getElementById('createModelSelect').value) {
@@ -830,6 +854,220 @@ function editCell(cell, model, field, value) {
   });
 }
 
+// ---- Status tab functions ----
+
+/**
+ * Initialize the trend chart.
+ */
+function initTrendChart() {
+  const canvas = document.getElementById('statusTrendChart');
+  if (!canvas) return;
+
+  statusTrendChart = new LineChart(canvas);
+}
+
+/**
+ * Update the trend history with new data and refresh the chart.
+ * @param {object} data - Status data from /api/status
+ */
+function updateTrendHistory(data) {
+  const now = Date.now();
+
+  // Append new data point
+  trendHistory.labels.push(now);
+  trendHistory.total.push(data.totalTransactionsPerMinute || 0);
+
+  // Track per-table data
+  if (data.tablesPerMinute) {
+    data.tablesPerMinute.forEach(entry => {
+      if (!trendHistory.tables[entry.name]) {
+        trendHistory.tables[entry.name] = [];
+      }
+      // Fill in zeros for previous points if this is a new table
+      while (trendHistory.tables[entry.name].length < trendHistory.labels.length - 1) {
+        trendHistory.tables[entry.name].push(0);
+      }
+      trendHistory.tables[entry.name].push(entry.tpm || 0);
+    });
+  }
+
+  // Trim to max points
+  if (trendHistory.labels.length > MAX_TREND_POINTS) {
+    trendHistory.labels = trendHistory.labels.slice(-MAX_TREND_POINTS);
+    trendHistory.total = trendHistory.total.slice(-MAX_TREND_POINTS);
+    for (const tableName in trendHistory.tables) {
+      trendHistory.tables[tableName] = trendHistory.tables[tableName].slice(-MAX_TREND_POINTS);
+    }
+  }
+
+  // Update chart
+  if (!statusTrendChart) return;
+
+  // Build datasets array
+  const datasets = [
+    {
+      label: 'Total',
+      data: trendHistory.total,
+      borderColor: '#2196F3',
+      backgroundColor: 'rgba(33, 150, 243, 0.1)',
+      fill: true,
+      lineWidth: 2
+    }
+  ];
+
+  // Sync table datasets
+  const currentTables = data.tablesPerMinute ? data.tablesPerMinute.map(e => e.name) : [];
+
+  const tableColors = [
+    '#4CAF50', '#FF9800', '#9C27B0', '#F44336', '#00BCD4',
+    '#795548', '#607D8B', '#E91E63', '#3F51B5', '#CDDC39'
+  ];
+
+  let colorIndex = 0;
+  for (const tableName of currentTables) {
+    if (!trendHistory.tables[tableName]) continue;
+
+    datasets.push({
+      label: tableName,
+      data: trendHistory.tables[tableName],
+      borderColor: tableColors[colorIndex % tableColors.length],
+      lineWidth: 1.5
+    });
+
+    colorIndex++;
+  }
+
+  // Clean up history for tables no longer in the data
+  for (const tableName in trendHistory.tables) {
+    if (!currentTables.includes(tableName)) {
+      delete trendHistory.tables[tableName];
+    }
+  }
+
+  statusTrendChart.update({
+    labels: trendHistory.labels,
+    datasets: datasets
+  });
+}
+
+/**
+ * Fetch and display status data from /api/status.
+ */
+async function loadStatus() {
+  try {
+    const response = await authFetch('/api/status');
+
+    if (!response.ok) {
+      const result = await response.json();
+      statusMessageEl.textContent = 'Error loading status: ' + (result.error || 'Unknown error');
+      statusMessageEl.style.color = 'red';
+      return;
+    }
+
+    const data = await response.json();
+
+    // Update trend history and chart
+    updateTrendHistory(data);
+
+    // Show the rolling window label
+    statusMinuteEl.textContent = 'Rolling 1-minute window';
+
+    // Update total
+    statusTotalEl.textContent = data.totalTransactionsPerMinute;
+
+    // Update tables table
+    statusTablesBodyEl.innerHTML = '';
+    if (data.tablesPerMinute && data.tablesPerMinute.length > 0) {
+      data.tablesPerMinute.forEach(entry => {
+        const tr = document.createElement('tr');
+        const tdName = document.createElement('td');
+        tdName.style.padding = '8px';
+        tdName.style.border = '1px solid #ddd';
+        tdName.textContent = entry.name;
+        const tdCount = document.createElement('td');
+        tdCount.style.padding = '8px';
+        tdCount.style.border = '1px solid #ddd';
+        tdCount.style.textAlign = 'right';
+        tdCount.textContent = entry.tpm;
+        tr.appendChild(tdName);
+        tr.appendChild(tdCount);
+        statusTablesBodyEl.appendChild(tr);
+      });
+    } else {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 2;
+      td.style.padding = '8px';
+      td.style.border = '1px solid #ddd';
+      td.style.textAlign = 'center';
+      td.style.color = '#999';
+      td.textContent = 'No table-specific transactions in the last minute';
+      tr.appendChild(td);
+      statusTablesBodyEl.appendChild(tr);
+    }
+
+    // Update IPs table
+    statusIPsBodyEl.innerHTML = '';
+    if (data.ipsPerMinute && data.ipsPerMinute.length > 0) {
+      data.ipsPerMinute.forEach(entry => {
+        const tr = document.createElement('tr');
+        const tdIp = document.createElement('td');
+        tdIp.style.padding = '8px';
+        tdIp.style.border = '1px solid #ddd';
+        tdIp.textContent = entry.ip;
+        const tdCount = document.createElement('td');
+        tdCount.style.padding = '8px';
+        tdCount.style.border = '1px solid #ddd';
+        tdCount.style.textAlign = 'right';
+        tdCount.textContent = entry.tpm;
+        tr.appendChild(tdIp);
+        tr.appendChild(tdCount);
+        statusIPsBodyEl.appendChild(tr);
+      });
+    } else {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 2;
+      td.style.padding = '8px';
+      td.style.border = '1px solid #ddd';
+      td.style.textAlign = 'center';
+      td.style.color = '#999';
+      td.textContent = 'No IP data in the last minute';
+      tr.appendChild(td);
+      statusIPsBodyEl.appendChild(tr);
+    }
+
+    statusMessageEl.textContent = 'Auto-refreshing every 5 seconds...';
+    statusMessageEl.style.color = '#666';
+
+  } catch (error) {
+    console.error('Error loading status:', error);
+    statusMessageEl.textContent = 'Error loading status. Please try again.';
+    statusMessageEl.style.color = 'red';
+  }
+}
+
+/**
+ * Start polling the status endpoint every 5 seconds.
+ */
+function startStatusPolling() {
+  // Load immediately, then poll
+  loadStatus();
+  if (!statusPollInterval) {
+    statusPollInterval = setInterval(loadStatus, 5000);
+  }
+}
+
+/**
+ * Stop polling the status endpoint.
+ */
+function stopStatusPolling() {
+  if (statusPollInterval) {
+    clearInterval(statusPollInterval);
+    statusPollInterval = null;
+  }
+}
+
 // Cancel record creation
 function cancelRecord() {
   const selectedModel = document.getElementById('createModelSelect').value.trim();
@@ -899,6 +1137,12 @@ document.getElementById('nextPageBtnTop').addEventListener('click', () => {
 // Initialize on page load
 initAceEditor();
 loadModels();
+
+// Initialize trend chart
+initTrendChart();
+
+// Start status polling since Status tab is the default active tab
+startStatusPolling();
 
 // Load create form when model selection changes
 const createModelSelect = document.getElementById('createModelSelect');

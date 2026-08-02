@@ -4,7 +4,7 @@
   "Database": {},
 
   "WebServer": {
-    "port": 13123,
+    "port": 3123,
     "basicAuth": {
       "enabled": false,
       "username": "admin",
